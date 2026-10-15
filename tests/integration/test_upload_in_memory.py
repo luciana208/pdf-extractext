@@ -14,28 +14,8 @@ URL = "/api/v1/documents/"
 TWO_MB = 2 * 1024 * 1024
 
 
-def build_pdf(padding: int) -> bytes:
-    """PDF válido de una página con un objeto de relleno de `padding` bytes (xref correcta)."""
-    objects = [
-        b"<</Type/Catalog/Pages 2 0 R>>",
-        b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
-        b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>",
-        b"<</Length %d>>stream\n" % padding + b"0" * padding + b"\nendstream",
-    ]
-    out = bytearray(b"%PDF-1.4\n")
-    offsets = []
-    for number, body in enumerate(objects, start=1):
-        offsets.append(len(out))
-        out += b"%d 0 obj" % number + body + b"endobj\n"
-    xref_position = len(out)
-    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
-    out += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
-    out += b"trailer<</Size %d/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF" % (len(objects) + 1, xref_position)
-    return bytes(out)
-
-
-async def test_large_pdf_is_processed_without_touching_disk(async_client):
-    pdf = build_pdf(padding=TWO_MB)
+async def test_large_pdf_is_processed_without_touching_disk(async_client, pdf_factory):
+    pdf = pdf_factory(padding=TWO_MB)
     files = {"file": ("grande.pdf", pdf, "application/pdf")}
     original_rollover = SpooledTemporaryFile.rollover
 
@@ -46,8 +26,8 @@ async def test_large_pdf_is_processed_without_touching_disk(async_client):
     assert rollover.call_count == 0, "El PDF se escribió en un archivo temporal en disco"
 
 
-async def test_body_larger_than_limit_is_rejected_before_parsing(async_client):
-    too_big = build_pdf(padding=11 * 1024 * 1024)  # límite por defecto: 10 MB
+async def test_body_larger_than_limit_is_rejected_before_parsing(async_client, pdf_factory):
+    too_big = pdf_factory(padding=11 * 1024 * 1024)  # límite por defecto: 10 MB
     files = {"file": ("enorme.pdf", too_big, "application/pdf")}
     original_rollover = SpooledTemporaryFile.rollover
 

@@ -27,7 +27,7 @@ Estrategia de integración:
   - Usamos MongoDB real (ya corriendo localmente).
   - Usamos httpx.AsyncClient con ASGITransport para hacer requests HTTP a la app FastAPI.
   - Limpiamos la colección "documents" antes y después de cada test para aislamiento.
-  - No usamos mocks: se prueban todas las capas reales (Router → Controller → Service → Repository → MongoDB).
+  - No usamos mocks: se prueban todas las capas reales (Router → Controller → Use Case → Repository → MongoDB).
 """
 
 import pytest

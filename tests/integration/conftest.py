@@ -5,6 +5,8 @@ Flujo real completo: HTTP → Router → Controller → Use Case → Repositorio
 Requieren MongoDB corriendo (MONGO_URL) o el docker-compose.test.yml.
 """
 
+from collections.abc import Callable
+
 import pytest
 import pytest_asyncio
 from beanie import init_beanie
@@ -54,3 +56,33 @@ def fake_pdf_bytes() -> bytes:
         b"147\n"
         b"%%EOF"
     )
+
+
+def build_pdf(padding: int = 0) -> bytes:
+    """PDF válido de una página, sin texto, con un objeto de relleno de `padding` bytes.
+
+    La tabla xref se calcula con los offsets reales, así que pdfplumber lo abre
+    sin problemas sea cual sea el tamaño.
+    """
+    objects = [
+        b"<</Type/Catalog/Pages 2 0 R>>",
+        b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+        b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>",
+        b"<</Length %d>>stream\n" % padding + b"0" * padding + b"\nendstream",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj" % number + body + b"endobj\n"
+    xref_position = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
+    out += b"trailer<</Size %d/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF" % (len(objects) + 1, xref_position)
+    return bytes(out)
+
+
+@pytest.fixture
+def pdf_factory() -> Callable[[int], bytes]:
+    """Fábrica de PDFs válidos del tamaño que se necesite: pdf_factory(padding=2 * 1024 * 1024)."""
+    return build_pdf

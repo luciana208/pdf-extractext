@@ -5,33 +5,9 @@ Este test verifica que el sistema extrae correctamente el texto de los PDFs.
 """
 
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from beanie import init_beanie
+from httpx import AsyncClient
 
-from app.main import app
-from app.data.database.mongo_connection import connect, disconnect, get_database
 from app.data.models.document_model import DocumentModel
-
-
-@pytest_asyncio.fixture(scope="function")
-async def clean_database():
-    """Conecta a MongoDB, inicializa Beanie, limpia la coleccion."""
-    await connect()
-    db = get_database()
-    await init_beanie(database=db, document_models=[DocumentModel])
-    await DocumentModel.delete_all()
-    yield db
-    await DocumentModel.delete_all()
-    await disconnect()
-
-
-@pytest_asyncio.fixture(scope="function")
-async def async_client(clean_database):
-    """Cliente HTTP async para requests a la app FastAPI."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
 
 
 def _make_pdf(lines: list[str]) -> bytes:
