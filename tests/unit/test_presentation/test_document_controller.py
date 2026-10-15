@@ -109,7 +109,7 @@ class TestUploadDocument:
         buffer = io.BytesIO(valid_pdf)
         file_mock.read = AsyncMock(side_effect=lambda n=-1: buffer.read(n))
         file_mock.seek = AsyncMock()
-        file_mock.tell = AsyncMock(return_value=len(valid_pdf))
+        file_mock.size = len(valid_pdf)
 
         dto = UploadRequestDTO(custom_name="Mi documento")
 
