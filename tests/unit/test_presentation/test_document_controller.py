@@ -184,7 +184,7 @@ class TestUpdateDocument:
 
         result = await controller.update_document("abc123", dto)
 
-        mock_service["update"].execute.assert_called_once_with("abc123", {"custom_name": "Nuevo nombre"})
+        mock_service["update"].execute.assert_called_once_with("abc123", {"filename": "Nuevo nombre"})
         assert result == sample_response
 
     @pytest.mark.asyncio
