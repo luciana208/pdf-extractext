@@ -1,25 +1,6 @@
-"""
-document_router.py — Definición de los 5 endpoints HTTP
-=========================================================
-El Router es la "puerta de entrada" del sistema. Es el primer punto que recibe las peticiones HTTP del cliente y las dirige al Controller
-correspondiente.
+"""Endpoints HTTP de documentos (/api/v1/documents).
 
-Responsabilidades del Router:
-  - Declarar las rutas (URLs) y los métodos HTTP (POST, GET, PUT, DELETE).
-  - Indicar los códigos de estado HTTP correctos para cada operación.
-  - Extraer los parámetros de la request (path params, query params, body,
-    archivos) y pasárselos al Controller.
-
-Lo que el Router NO hace:
-  - No valida lógica de negocio.
-  - No accede a datos.
-  - No contiene lógica de orquestación (eso es del Controller).
-
-Principios aplicados:
-  - SRP: solo define rutas y delega.
-  - DRY: el Controller se inyecta una sola vez via Depends().
-  - KISS: cada función del router es de 1-3 líneas; toda la lógica
-    está en el Controller.
+Cada endpoint solo extrae los parámetros de la request y delega en el controller.
 """
 
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
@@ -31,8 +12,6 @@ from app.presentation.dto.request.update_request import UpdateRequestDTO
 from app.presentation.dto.request.upload_request import UploadRequestDTO
 from app.presentation.dto.response.document_response import DocumentResponseDTO
 
-# APIRouter agrupa todos los endpoints de documentos bajo el prefijo
-# /api/v1/documents. El prefijo se registra en main.py al incluir este router.
 router = APIRouter(
     prefix="/api/v1/documents",
     tags=["documents"],  # Agrupa los endpoints en la documentación Swagger.

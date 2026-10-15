@@ -1,78 +1,43 @@
+"""Modelo de persistencia de un documento en MongoDB (Beanie).
+
+Vive solo en la capa de datos: el resto de la aplicación trabaja con la
+entidad de dominio `Document`. La conversión entre ambos está acá, en un
+único lugar (to_entity / from_entity).
 """
-document_model.py
------------------
-Responsabilidad ÚNICA (SOLID - S): definir cómo se PERSISTE un documento
-en MongoDB. Este modelo vive en la capa de Datos y NUNCA sale de ella;
-las capas superiores trabajan con la entidad Document (capa de Negocio).
- 
-¿Qué hace este archivo?
-  - Define el schema Pydantic que mapea la colección 'documents' de MongoDB.
-  - Usa Beanie (ODM async sobre Motor) para simplificar las operaciones CRUD.
-  - Convierte entre DocumentModel (persistencia) y Document (dominio) mediante
-    métodos to_entity() y from_entity().
- 
-¿Por qué separar Model de Entity?
-  - La entidad pertenece al negocio y no debe conocer MongoDB.
-  - El modelo puede tener campos internos de BD (ej: _id, created_at)
-    que no son relevantes para las reglas de negocio.
-  - SOLID-D: si mañana cambiamos de MongoDB a PostgreSQL, solo
-    modificamos esta capa.
-"""
- 
+
 from datetime import datetime, timezone
- 
+from typing import TYPE_CHECKING
+
 from beanie import Document
 from pydantic import Field
 from pymongo import IndexModel
-# Importamos la entidad de dominio para la conversión. Usamos TYPE_CHECKING
-# para evitar importación circular en tiempo de ejecución.
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from app.business.entities.document import Document
- 
- 
+    from app.business.entities.document import Document as DocumentEntity
+
+
 class DocumentModel(Document):
+    """Documento guardado en la colección `documents`.
+
+    `name` es el nombre visible del archivo; en el dominio se llama `filename`.
+    El índice único sobre `checksum` impide duplicados aun con uploads simultáneos.
     """
-    Representa un documento PDF guardado en MongoDB.
- 
-    Atributos:
-        name        : Nombre original del archivo PDF subido.
-        checksum    : SHA-256 del binario del PDF. Usado para detectar duplicados.
-        extracted_text: Texto extraído del PDF. Puede ser vacío si el PDF es escaneado.
-        created_at  : Timestamp UTC de creación. Lo asigna automáticamente la capa de Datos.
-        updated_at  : Timestamp UTC de última modificación.
- 
-    Nota sobre `id`:
-        Beanie hereda de BeanieDocument y expone `id` como alias de `_id` de Mongo.
-        Al crear un documento nuevo sin id, Mongo genera un ObjectId automáticamente.
-    """
- 
+
     name: str
     checksum: str
     extracted_text: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
- 
+
     class Settings:
-        # Nombre de la colección en MongoDB
         name = "documents"
-        # Esto evita que Beanie intente validar la colección al instanciar el objeto en tests
         is_root = True
-        indexes = [                                        # ← agregar esto
-            IndexModel([("checksum", 1)], unique=True),   # ← y esto
-        ]
-    # ------------------------------------------------------------------
-    # Conversión Model ↔ Entity  (DRY: un único punto de transformación)
-    # ------------------------------------------------------------------
- 
-    def to_entity(self) -> "Document":
-        """
-        Convierte este modelo de persistencia en la entidad de dominio.
-        La capa de Negocio solo trabaja con entidades, nunca con modelos Mongo.
-        """
-        from app.business.entities.document import Document
- 
-        return Document(
+        indexes = [IndexModel([("checksum", 1)], unique=True)]
+
+    def to_entity(self) -> "DocumentEntity":
+        from app.business.entities.document import Document as DocumentEntity
+
+        return DocumentEntity(
             id=str(self.id) if self.id else None,
             filename=self.name,
             checksum=self.checksum,
@@ -80,13 +45,9 @@ class DocumentModel(Document):
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
- 
+
     @classmethod
-    def from_entity(cls, entity: "Document") -> "DocumentModel":
-        """
-        Convierte una entidad de dominio en un modelo listo para persistir.
-        Se usa en save() y update() del repositorio.
-        """
+    def from_entity(cls, entity: "DocumentEntity") -> "DocumentModel":
         return cls(
             name=entity.filename,
             checksum=entity.checksum,

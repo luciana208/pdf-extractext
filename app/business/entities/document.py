@@ -1,13 +1,7 @@
-"""
-Entidad de dominio: Document.
+"""Entidad de dominio Document: un PDF procesado.
 
-Representa un documento PDF dentro del sistema. Es un objeto puro de Python,
-sin dependencias de frameworks ni de bases de datos. Vive exclusivamente
-en la capa de Negocio.
-
-Esta entidad es el "lenguaje" que hablan las capas entre sí. Tanto el
-Service como el Repository trabajan con objetos Document, nunca con
-dicts crudos ni modelos de MongoDB.
+Objeto puro de Python, sin frameworks ni base de datos. Es lo que intercambian
+los casos de uso y el repositorio.
 """
 
 from dataclasses import dataclass, field
@@ -18,9 +12,8 @@ from datetime import datetime, timezone
 class Document:
     """Objeto de dominio que representa un PDF procesado.
 
-    Es inmutable por diseño: una vez creado, sus campos de contenido
-    (checksum, extracted_text) no deberían cambiar. Solo los metadatos
-    (filename) son actualizables.
+    Regla de negocio: checksum y extracted_text no cambian una vez creado;
+    solo filename se puede actualizar (lo hace cumplir el repositorio).
 
     Attributes:
         filename: Nombre original del archivo subido.
@@ -35,7 +28,6 @@ class Document:
     checksum: str
     extracted_text: str
 
-    # Campos opcionales: None antes de persistir, poblados por el repositorio
     id: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

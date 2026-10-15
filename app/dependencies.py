@@ -1,34 +1,24 @@
-"""
-dependencies.py — Inyección de dependencias
-============================================
-FastAPI usa el patrón Dependency Injection (DI) a través de Depends(). Este archivo centraliza la construcción de los objetos que se inyectan
-en los endpoints.
+"""Composición: arma el controller con sus casos de uso y el repositorio concreto.
 
-¿Por qué es importante este archivo?
-  - DIP (SOLID): el Router y el Controller nunca crean sus dependencias; las reciben desde afuera. Esto permite cambiar implementaciones sin
-    tocar el código de los consumers.
-  - Testabilidad: en los tests se puede sobreescribir estas funciones para inyectar mocks en lugar de implementaciones reales.
-  - DRY: la construcción del Controller ocurre en un solo lugar.
+Es el único lugar que conoce las implementaciones (DIP). En los tests se puede
+reemplazar con app.dependency_overrides.
 """
 
-
-
-
-from app.presentation.controllers.document_controller import DocumentController
 from app.data.repositories.mongo_document_repository import MongoDocumentRepository
-from app.use_cases.process_pdf import ProcessPDFUseCase
-from app.use_cases.list_documents import ListDocumentsUseCase
-from app.use_cases.get_document import GetDocumentUseCase
-from app.use_cases.update_document import UpdateDocumentUseCase
+from app.presentation.controllers.document_controller import DocumentController
 from app.use_cases.delete_document import DeleteDocumentUseCase
+from app.use_cases.get_document import GetDocumentUseCase
+from app.use_cases.list_documents import ListDocumentsUseCase
+from app.use_cases.process_pdf import ProcessPDFUseCase
+from app.use_cases.update_document import UpdateDocumentUseCase
 
 
 def get_document_controller() -> DocumentController:
-  repo = MongoDocumentRepository()
-  return DocumentController(
-    process_pdf=ProcessPDFUseCase(repo),
-    list_documents=ListDocumentsUseCase(repo),
-    get_document=GetDocumentUseCase(repo),
-    update_document=UpdateDocumentUseCase(repo),
-    delete_document=DeleteDocumentUseCase(repo),
-  )
+    repo = MongoDocumentRepository()
+    return DocumentController(
+        process_pdf=ProcessPDFUseCase(repo),
+        list_documents=ListDocumentsUseCase(repo),
+        get_document=GetDocumentUseCase(repo),
+        update_document=UpdateDocumentUseCase(repo),
+        delete_document=DeleteDocumentUseCase(repo),
+    )
