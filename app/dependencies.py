@@ -21,7 +21,6 @@ from app.use_cases.list_documents import ListDocumentsUseCase
 from app.use_cases.get_document import GetDocumentUseCase
 from app.use_cases.update_document import UpdateDocumentUseCase
 from app.use_cases.delete_document import DeleteDocumentUseCase
-from app.use_cases.download_text import DownloadTextUseCase
 
 
 def get_document_controller() -> DocumentController:
@@ -32,5 +31,4 @@ def get_document_controller() -> DocumentController:
     get_document=GetDocumentUseCase(repo),
     update_document=UpdateDocumentUseCase(repo),
     delete_document=DeleteDocumentUseCase(repo),
-    download_text=DownloadTextUseCase(repo),
   )

@@ -67,8 +67,6 @@ def mock_service(sample_entity) -> MagicMock:
     update_uc.execute = AsyncMock(return_value=sample_entity)
     delete_uc = MagicMock()
     delete_uc.execute = AsyncMock(return_value=True)
-    download_uc = MagicMock()
-    download_uc.execute = AsyncMock(return_value=sample_entity)
 
     return {
         "process": process,
@@ -76,7 +74,6 @@ def mock_service(sample_entity) -> MagicMock:
         "get": get_uc,
         "update": update_uc,
         "delete": delete_uc,
-        "download": download_uc,
     }
 
 
@@ -89,7 +86,6 @@ def controller(mock_service) -> DocumentController:
         get_document=mock_service["get"],
         update_document=mock_service["update"],
         delete_document=mock_service["delete"],
-        download_text=mock_service["download"],
     )
 
 

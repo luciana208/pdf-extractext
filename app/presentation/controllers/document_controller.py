@@ -7,7 +7,6 @@ from app.use_cases.list_documents import ListDocumentsUseCase
 from app.use_cases.get_document import GetDocumentUseCase
 from app.use_cases.update_document import UpdateDocumentUseCase
 from app.use_cases.delete_document import DeleteDocumentUseCase
-from app.use_cases.download_text import DownloadTextUseCase
 from app.presentation.dto.request.update_request import UpdateRequestDTO
 from app.presentation.dto.request.upload_request import UploadRequestDTO
 from app.presentation.dto.response.document_response import DocumentResponseDTO
@@ -23,14 +22,12 @@ class DocumentController:
         get_document: GetDocumentUseCase,
         update_document: UpdateDocumentUseCase,
         delete_document: DeleteDocumentUseCase,
-        download_text: DownloadTextUseCase,
     ) -> None:
         self._process_pdf = process_pdf
         self._list_documents = list_documents
         self._get_document = get_document
         self._update_document = update_document
         self._delete_document = delete_document
-        self._download_text = download_text
 
     async def upload_document(self, file: UploadFile, dto: UploadRequestDTO) -> DocumentResponseDTO:
         await validate_pdf(file)
@@ -73,8 +70,7 @@ class DocumentController:
         return {"message": f"Documento '{document_id}' eliminado correctamente."}
 
     async def download_document_text(self, document_id: str) -> Response:
-        # Use the download use case to fetch the document for download
-        document = await self._download_text.execute(document_id)
+        document = await self._get_document.execute(document_id)
         # Use original filename but with .txt extension
         original = document.filename or document_id
         if original.lower().endswith(".pdf"):
