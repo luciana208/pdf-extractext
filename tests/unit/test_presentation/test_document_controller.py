@@ -129,9 +129,9 @@ class TestGetAllDocuments:
     @pytest.mark.asyncio
     async def test_returns_list_from_service(self, controller, mock_service, sample_response):
         """El controller debe devolver la lista que retorna el service."""
-        result = await controller.get_all_documents()
+        result = await controller.get_all_documents(skip=0, limit=20)
 
-        mock_service["list"].execute.assert_called_once()
+        mock_service["list"].execute.assert_called_once_with(skip=0, limit=20)
         assert result == [sample_response]
 
     @pytest.mark.asyncio
@@ -139,7 +139,7 @@ class TestGetAllDocuments:
         """Si el service devuelve lista vacía, el controller también debe devolver lista vacía."""
         mock_service["list"].execute = AsyncMock(return_value=[])
 
-        result = await controller.get_all_documents()
+        result = await controller.get_all_documents(skip=0, limit=20)
 
         assert result == []
 

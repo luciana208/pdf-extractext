@@ -28,6 +28,7 @@ from app.config.settings import settings
 from app.dependencies import get_document_controller
 from app.presentation.controllers.document_controller import DocumentController
 from app.presentation.dto.request.update_request import UpdateRequestDTO
+from app.presentation.dto.request.upload_request import UploadRequestDTO
 from app.presentation.dto.response.document_response import DocumentResponseDTO
 
 # APIRouter agrupa todos los endpoints de documentos bajo el prefijo
@@ -57,10 +58,7 @@ async def upload_document(
     - Detecta duplicados (mismo contenido = mismo checksum).
     - Persiste el documento y devuelve sus datos.
     """
-    # Form fields llegan como parámetros separados en multipart/form-data;
-    # los agrupamos en el DTO manualmente para mantener el contrato limpio.
-    from app.presentation.dto.request.upload_request import UploadRequestDTO
-
+    # En multipart/form-data los campos llegan sueltos; se agrupan en el DTO.
     dto = UploadRequestDTO(custom_name=custom_name)
     return await controller.upload_document(file, dto)
 
