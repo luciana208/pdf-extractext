@@ -79,3 +79,14 @@ async def test_download_nonexistent_returns_problemdetail(async_client: AsyncCli
     body = resp.json()
     assert set(["type", "title", "status", "detail", "instance"]).issubset(set(body.keys()))
     assert body["status"] == 404
+
+
+@pytest.mark.asyncio
+async def test_download_with_non_ascii_name(async_client: AsyncClient, fake_pdf_bytes: bytes):
+    files = {"file": ("informe_文件.pdf", fake_pdf_bytes, "application/pdf")}
+    doc_id = (await async_client.post("/api/v1/documents/", files=files)).json()["id"]
+
+    resp = await async_client.get(f"/api/v1/documents/{doc_id}/download")
+
+    assert resp.status_code == 200
+    assert "filename*=UTF-8''informe_%E6%96%87%E4%BB%B6.txt" in resp.headers["content-disposition"]
