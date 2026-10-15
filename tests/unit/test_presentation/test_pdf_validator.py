@@ -91,7 +91,7 @@ class TestPdfValidator:
         Un archivo PDF real pero demasiado grande debe lanzar PDFTooLargeError (el cliente recibe 413).
         """
         # Creamos contenido que supera el límite por 1 byte.
-        oversized_content = PDF_MAGIC_BYTES + b"x" * (settings.MAX_PDF_SIZE_BYTES + 1)
+        oversized_content = PDF_MAGIC_BYTES + b"x" * (settings.max_pdf_size_bytes + 1)
         file_mock = make_upload_file_mock(oversized_content)
 
         with pytest.raises(PDFTooLargeError):
@@ -104,7 +104,7 @@ class TestPdfValidator:
         Verifica que el límite es inclusivo (<=, no <).
         """
         # Tamaño exacto = MAX - 4 bytes de magic bytes.
-        content_size = settings.MAX_PDF_SIZE_BYTES - len(PDF_MAGIC_BYTES)
+        content_size = settings.max_pdf_size_bytes - len(PDF_MAGIC_BYTES)
         exact_size_content = PDF_MAGIC_BYTES + b"x" * content_size
         file_mock = make_upload_file_mock(exact_size_content)
 

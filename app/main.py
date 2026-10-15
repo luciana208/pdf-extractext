@@ -30,7 +30,7 @@ MAX_REQUEST_BYTES = settings.max_pdf_size_bytes + MULTIPART_OVERHEAD_BYTES
 # de request, y BodySizeLimitMiddleware rechaza todo lo que lo supere.
 MultiPartParser.spool_max_size = MAX_REQUEST_BYTES
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
 
 app.add_middleware(

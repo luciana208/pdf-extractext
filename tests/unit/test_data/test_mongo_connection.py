@@ -51,8 +51,8 @@ class TestConnect:
         with patch("app.data.database.mongo_connection.motor.motor_asyncio.AsyncIOMotorClient",
                    return_value=mock_client):
             with patch("app.data.database.mongo_connection.settings") as mock_settings:
-                mock_settings.MONGO_URL = "mongodb://localhost:27017"
-                mock_settings.DB_NAME = "test_db"
+                mock_settings.mongo_url = "mongodb://localhost:27017"
+                mock_settings.db_name = "test_db"
 
                 await conn_module.connect()
 
@@ -74,8 +74,8 @@ class TestConnect:
         with patch("app.data.database.mongo_connection.motor.motor_asyncio.AsyncIOMotorClient",
                    return_value=mock_client):
             with patch("app.data.database.mongo_connection.settings") as mock_settings:
-                mock_settings.MONGO_URL = "mongodb://url-inexistente:27017"
-                mock_settings.DB_NAME = "test_db"
+                mock_settings.mongo_url = "mongodb://url-inexistente:27017"
+                mock_settings.db_name = "test_db"
 
                 with pytest.raises(ConnectionFailure):
                     await conn_module.connect()
