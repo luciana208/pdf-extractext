@@ -1,52 +1,28 @@
 """
 Tests unitarios para checksum_calculator.
 
-Valida que el cálculo de SHA-256 sea correcto, idempotente y sensible
-a diferencias en el contenido. Sin mocks: es una función pura.
+Los valores esperados son SHA-256 publicados (fuente independiente del código),
+no se calculan con hashlib dentro del test.
 """
-
-import hashlib
-
-import pytest
 
 from app.business.domain.checksum_calculator import calculate_checksum
 
+SHA256_HELLO_WORLD = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+SHA256_EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
 
 class TestCalculateChecksum:
-    def test_returns_correct_sha256_for_known_input(self):
-        """El hash generado debe coincidir con el SHA-256 estándar."""
-        data = b"hello world"
-        expected = hashlib.sha256(data).hexdigest()
+    def test_returns_sha256_of_known_input(self):
+        assert calculate_checksum(b"hello world") == SHA256_HELLO_WORLD
 
-        assert calculate_checksum(data) == expected
-
-    def test_returns_64_char_hex_string(self):
-        """SHA-256 siempre produce un hexdigest de 64 caracteres."""
-        result = calculate_checksum(b"any content")
-
-        assert isinstance(result, str)
-        assert len(result) == 64
-
-    def test_is_idempotent(self):
-        """El mismo input siempre produce el mismo output."""
-        data = b"consistent content"
-
-        assert calculate_checksum(data) == calculate_checksum(data)
+    def test_returns_sha256_of_empty_input(self):
+        assert calculate_checksum(b"") == SHA256_EMPTY
 
     def test_different_content_produces_different_checksum(self):
-        """Archivos distintos deben tener checksums distintos."""
         assert calculate_checksum(b"file_a") != calculate_checksum(b"file_b")
 
-    def test_empty_bytes_returns_known_hash(self):
-        """El hash de bytes vacíos es el SHA-256 del string vacío (definido por el estándar)."""
-        expected = hashlib.sha256(b"").hexdigest()
-
-        assert calculate_checksum(b"") == expected
-
     def test_handles_large_input(self):
-        """No debe fallar con archivos grandes (simulados con bytes repetidos)."""
-        large_data = b"x" * 10_000_000  # 10 MB
-
-        result = calculate_checksum(large_data)
+        result = calculate_checksum(b"x" * 10_000_000)  # 10 MB
 
         assert len(result) == 64
+        assert all(c in "0123456789abcdef" for c in result)
