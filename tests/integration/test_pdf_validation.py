@@ -1,5 +1,5 @@
 """
-test_validation.py — Test de integración para validación de PDFs y texto extraído
+test_pdf_validation.py — Test de integración para validación de PDFs y texto extraído
 ==================================================================================
 Este test verifica que el sistema detecta correctamente si un archivo es un PDF
 válido y si el texto extraído cumple con el formato esperado, a través del flujo
@@ -12,7 +12,7 @@ Casos cubiertos:
     2. Archivo sin magic bytes PDF (ej: DOCX) → 400 rechazado.
     3. Archivo con magic bytes truncados (menos de 4 bytes) → 400 rechazado.
     4. Archivo completamente vacío → 400 rechazado.
-    5. Archivo que solo tiene los magic bytes y nada más → aceptado (mínimo válido).
+    5. Archivo que solo tiene los magic bytes y nada más → 400 (no se puede leer como PDF).
     6. PDF que supera el tamaño máximo (10 MB) → 413 rechazado.
     7. PDF en el límite exacto de tamaño → 201 aceptado.
     8. Archivo ZIP renombrado como PDF → 400 rechazado.
@@ -24,77 +24,18 @@ Casos cubiertos:
     12. El campo extracted_text está siempre presente en la respuesta.
 
 Estrategia de integración:
-  - Usamos MongoDB real (ya corriendo localmente).
+  - Usamos MongoDB real (fixtures de tests/integration/conftest.py).
   - Usamos httpx.AsyncClient con ASGITransport para hacer requests HTTP a la app FastAPI.
   - Limpiamos la colección "documents" antes y después de cada test para aislamiento.
   - No usamos mocks: se prueban todas las capas reales (Router → Controller → Use Case → Repository → MongoDB).
 """
 
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from beanie import init_beanie
+from httpx import AsyncClient
 
-from app.main import app
-from app.data.database.mongo_connection import connect, disconnect, get_database
 from app.data.models.document_model import DocumentModel
 from app.config.settings import settings
 from app.presentation.validators.pdf_validator import PDF_MAGIC_BYTES
-
-
-# ------------------------------------------------------------------ #
-# Fixtures
-# ------------------------------------------------------------------ #
-
-@pytest_asyncio.fixture(scope="function")
-async def clean_database():
-    """
-    Conecta a MongoDB, inicializa Beanie, y limpia la colección documents
-    antes de cada test. Se desconecta al final.
-    """
-    await connect()
-    db = get_database()
-    await init_beanie(database=db, document_models=[DocumentModel])
-
-    await DocumentModel.delete_all()
-    yield db
-    await DocumentModel.delete_all()
-    await disconnect()
-
-
-@pytest_asyncio.fixture(scope="function")
-async def async_client(clean_database):
-    """
-    Cliente HTTP async para hacer requests a la app FastAPI.
-    Usa ASGITransport para comunicarse directamente con la app sin levantar servidor.
-    """
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
-
-
-@pytest.fixture
-def fake_pdf_bytes() -> bytes:
-    """
-    PDF mínimo pero válido: magic bytes + estructura básica.
-    pdfplumber puede abrirlo (aunque no extraerá texto útil).
-    """
-    return (
-        b"%PDF-1.4\n"
-        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]>>endobj\n"
-        b"xref\n"
-        b"0 4\n"
-        b"0000000000 65535 f\n"
-        b"0000000009 00000 n\n"
-        b"0000000052 00000 n\n"
-        b"0000000101 00000 n\n"
-        b"trailer<</Size 4/Root 1 0 R>>\n"
-        b"startxref\n"
-        b"147\n"
-        b"%%EOF"
-    )
 
 
 # ------------------------------------------------------------------ #
@@ -146,7 +87,7 @@ async def test_truncated_magic_bytes_returns_400(async_client: AsyncClient):
     Cuando: se envía POST /api/v1/documents/
     Entonces: 400 Bad Request — los magic bytes incompletos no superan la validación
     """
-    truncated = b"%PD" + b" contenido extra para que no sea vacío"
+    truncated = b"%PD" + b" contenido extra para que no sea vacio"
     files = {"file": ("truncado.pdf", truncated, "application/pdf")}
 
     response = await async_client.post("/api/v1/documents/", files=files)
@@ -171,19 +112,17 @@ async def test_empty_file_returns_400(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_only_magic_bytes_is_accepted(async_client: AsyncClient):
+async def test_only_magic_bytes_returns_400(async_client: AsyncClient):
     """
     Dado: un archivo que solo contiene los 4 magic bytes (%PDF) sin más contenido
     Cuando: se envía POST /api/v1/documents/
-    Entonces: 201 Created — pasa la validación de formato (aunque pdfplumber no extraiga texto)
-    El validador solo verifica magic bytes y tamaño; no exige estructura interna completa.
+    Entonces: 400 Bad Request — pasa el chequeo de formato, pero no se puede leer como PDF
     """
-    only_magic = PDF_MAGIC_BYTES
-    files = {"file": ("minimo.pdf", only_magic, "application/pdf")}
+    files = {"file": ("minimo.pdf", PDF_MAGIC_BYTES, "application/pdf")}
 
     response = await async_client.post("/api/v1/documents/", files=files)
 
-    assert response.status_code == 201
+    assert response.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -194,7 +133,7 @@ async def test_oversized_pdf_returns_413(async_client: AsyncClient):
     Entonces: 413 Request Entity Too Large — el sistema rechaza el archivo por tamaño
     """
     # Magic bytes correctos + contenido que lleva el total por encima de MAX_PDF_SIZE_BYTES
-    oversized = PDF_MAGIC_BYTES + b"x" * settings.MAX_PDF_SIZE_BYTES
+    oversized = PDF_MAGIC_BYTES + b"x" * settings.max_pdf_size_bytes
     files = {"file": ("pesado.pdf", oversized, "application/pdf")}
 
     response = await async_client.post("/api/v1/documents/", files=files)
@@ -205,22 +144,29 @@ async def test_oversized_pdf_returns_413(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_pdf_at_exact_max_size_is_accepted(async_client: AsyncClient):
+async def test_pdf_at_exact_max_size_is_accepted(async_client: AsyncClient, pdf_factory):
     """
-    Dado: un PDF cuyo tamaño total es exactamente MAX_PDF_SIZE_BYTES (10 MB, el límite incluido)
+    Dado: un PDF válido cuyo tamaño es exactamente MAX_PDF_SIZE_BYTES (el límite incluido)
     Cuando: se envía POST /api/v1/documents/
-    Entonces: 201 Created — el límite es inclusivo (<=), el archivo justo en el borde se acepta
+    Entonces: 201 Created — el límite es inclusivo (<=)
     """
-    # Magic bytes (4 bytes) + relleno hasta llegar a exactamente MAX_PDF_SIZE_BYTES
-    padding = settings.MAX_PDF_SIZE_BYTES - len(PDF_MAGIC_BYTES)
-    exact_size = PDF_MAGIC_BYTES + b"x" * padding
-    assert len(exact_size) == settings.MAX_PDF_SIZE_BYTES
+    exact_size = _pdf_of_exact_size(pdf_factory, settings.max_pdf_size_bytes)
 
     files = {"file": ("limite_exacto.pdf", exact_size, "application/pdf")}
 
     response = await async_client.post("/api/v1/documents/", files=files)
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
+
+
+def _pdf_of_exact_size(pdf_factory, size: int) -> bytes:
+    """Ajusta el relleno hasta que el PDF mida exactamente `size` bytes."""
+    padding = size - len(pdf_factory(0))
+    pdf = pdf_factory(padding)
+    while len(pdf) != size:
+        padding -= len(pdf) - size
+        pdf = pdf_factory(padding)
+    return pdf
 
 
 @pytest.mark.asyncio
@@ -326,11 +272,7 @@ async def test_extracted_text_empty_string_for_pdf_without_text(async_client: As
     assert response.status_code == 201
 
     extracted = response.json()["extracted_text"]
-    assert isinstance(extracted, str)
-    # Para un fake PDF sin contenido real, pdfplumber no extrae texto
-    assert extracted == "" or isinstance(extracted, str), (
-        f"Se esperaba string vacío o string, pero got: {extracted!r}"
-    )
+    assert extracted == "", f"Se esperaba string vacío, se obtuvo: {extracted!r}"
 
 
 @pytest.mark.asyncio
