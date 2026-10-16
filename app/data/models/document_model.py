@@ -42,8 +42,8 @@ class DocumentModel(Document):
             filename=self.name,
             checksum=self.checksum,
             extracted_text=self.extracted_text,
-            created_at=self.created_at,
-            updated_at=self.updated_at,
+            created_at=_as_utc(self.created_at),
+            updated_at=_as_utc(self.updated_at),
         )
 
     @classmethod
@@ -55,3 +55,8 @@ class DocumentModel(Document):
             created_at=entity.created_at,
             updated_at=entity.updated_at,
         )
+
+
+def _as_utc(moment: datetime) -> datetime:
+    """MongoDB guarda las fechas en UTC pero las devuelve sin zona horaria."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)

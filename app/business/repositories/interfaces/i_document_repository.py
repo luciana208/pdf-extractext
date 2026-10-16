@@ -1,91 +1,43 @@
 from abc import ABC, abstractmethod
-from typing import Optional
-from app.business.entities.document import Document 
+
+from app.business.entities.document import Document
+
 
 class IDocumentRepository(ABC):
+    """Contrato de persistencia de documentos.
 
-    """Interfaz del repositorio de documentos.
-
-    Toda implementación concreta (Mongo, SQL, en memoria) debe heredar
-    esta clase y proveer los cinco métodos CRUD.
+    Convención para "no existe": las consultas devuelven None (o False en delete);
+    los casos de uso deciden si eso es un error. Un id con formato inválido se trata
+    igual que uno inexistente.
     """
+
     @abstractmethod
     async def save(self, document: Document) -> Document:
-        """Persiste un documento nuevo y retorna la entidad con el ID asignado.
-
-        Args:
-            document: Entidad de dominio lista para guardar.
-
-        Returns:
-            La misma entidad con el campo `id` poblado por la DB.
+        """Persiste un documento nuevo y lo devuelve con `id` asignado.
 
         Raises:
             DuplicateDocumentError: si ya existe un documento con el mismo checksum.
         """
-        ...
+
     @abstractmethod
     async def get_all(self, skip: int = 0, limit: int = 20) -> list[Document]:
-        """Retorna documentos almacenados con paginación.
-
-        Args:
-            skip: Número de documentos a saltar (offset).
-            limit: Cantidad máxima de documentos a retornar.
-
-        Returns:
-            Lista (puede estar vacía) de entidades Document.
-        """
-        ...
+        """Documentos paginados (lista vacía si no hay)."""
 
     @abstractmethod
-    async def get_by_id(self, document_id: str) -> Optional[Document]:
-        """Busca un documento por su ID único.
-
-        Args:
-            document_id: Identificador único del documento (string del ObjectId).
-
-        Returns:
-            La entidad si existe, None si no se encuentra.
-        """
-        ...
+    async def get_by_id(self, document_id: str) -> Document | None:
+        """El documento con ese id, o None si no existe."""
 
     @abstractmethod
-    async def get_by_checksum(self, checksum: str) -> Optional[Document]:
-        """Busca un documento por su checksum SHA-256.
-
-        Necesario para detección de duplicados antes de persistir.
-
-        Args:
-            checksum: Hash SHA-256 del contenido del archivo.
-
-        Returns:
-            La entidad si existe un documento con ese checksum, None si es nuevo.
-        """
-        ...
+    async def get_by_checksum(self, checksum: str) -> Document | None:
+        """El documento con ese SHA-256, o None si no existe."""
 
     @abstractmethod
-    async def update(self, document_id: str, fields: dict) -> Optional[Document]:
-        """Actualiza campos específicos de un documento existente.
+    async def update(self, document_id: str, fields: dict) -> Document | None:
+        """Actualiza metadatos (hoy solo `filename`) y devuelve el documento, o None si no existe.
 
-        Solo permite actualizar metadatos (ej: filename). El checksum
-        y el texto extraído son inmutables una vez persistidos.
-
-        Args:
-            document_id: ID del documento a actualizar.
-            fields: Diccionario con los campos a modificar y sus nuevos valores.
-
-        Returns:
-            La entidad actualizada, o None si no se encontró el documento.
+        checksum y extracted_text no se modifican nunca.
         """
-        ...
 
     @abstractmethod
     async def delete(self, document_id: str) -> bool:
-        """Elimina un documento por su ID.
-
-        Args:
-            document_id: ID del documento a eliminar.
-
-        Returns:
-            True si el documento existía y fue eliminado, False si no existía.
-        """
-        ...
+        """True si existía y se borró, False si no existía."""

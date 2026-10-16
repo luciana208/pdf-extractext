@@ -2,10 +2,11 @@ from app.business.domain.checksum_calculator import calculate_checksum
 from app.business.domain.text_extractor import extract_text
 from app.business.domain.validators.document_validator import validate_no_duplicate
 from app.business.entities.document import Document
+from app.business.repositories.interfaces.i_document_repository import IDocumentRepository
 
 
 class ProcessPDFUseCase:
-    def __init__(self, repository) -> None:
+    def __init__(self, repository: IDocumentRepository) -> None:
         self._repository = repository
 
     async def execute(self, file_bytes: bytes, filename: str) -> Document:
