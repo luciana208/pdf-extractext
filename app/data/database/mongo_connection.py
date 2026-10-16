@@ -40,11 +40,13 @@ async def connect() -> None:
 
 
 async def disconnect() -> None:
-    """Cierra la conexión."""
-    global _client
+    """Cierra la conexión. Después, get_database() vuelve a fallar hasta un nuevo connect()."""
+    global _client, _database
     if _client:
         _client.close()
         logger.info("Conexión a MongoDB cerrada.")
+    _client = None
+    _database = None
 
 
 def get_database() -> motor.motor_asyncio.AsyncIOMotorDatabase:

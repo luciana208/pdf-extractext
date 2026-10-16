@@ -16,7 +16,7 @@ Guía de testing (del profesor):
 
 import io
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from app.presentation.validators.pdf_validator import (
     PDF_MAGIC_BYTES,
@@ -34,7 +34,7 @@ def make_upload_file_mock(content: bytes) -> MagicMock:
     """
     Crea un mock de UploadFile que simula tener `content` como contenido.
 
-    UploadFile tiene métodos async (read, seek), por eso usamos AsyncMock.
+    UploadFile tiene métodos async (read, seek): se simulan con funciones async sobre un buffer.
     La lógica de read() simula un cursor real: primer read devuelve los primeros 4 bytes, segundo read devuelve el resto.
     """
     mock = MagicMock()
@@ -112,21 +112,14 @@ class TestPdfValidator:
         await validate_pdf(file_mock)
 
     @pytest.mark.asyncio
-    async def test_seek_is_called_after_validation(self):
+    async def test_file_can_be_read_completely_after_validation(self):
         """
-        Después de validar, el cursor del archivo debe quedar en posición 0 para que el Service pueda leer el archivo completo.
-        Verificamos que se llama seek(0).
+        Después de validar, el archivo tiene que poder leerse entero desde el principio
+        (el controller lo lee para procesarlo).
         """
-        valid_content = PDF_MAGIC_BYTES + b" content"
-        mock = MagicMock()
+        content = PDF_MAGIC_BYTES + b" resto del contenido"
+        file_mock = make_upload_file_mock(content)
 
-        # Usamos buffer real para read pero AsyncMock para seek.
-        buffer = io.BytesIO(valid_content)
-        mock.read = AsyncMock(side_effect=lambda n=-1: buffer.read(n))
-        mock.seek = AsyncMock()
-        mock.size = len(valid_content)  # ← NUEVO
+        await validate_pdf(file_mock)
 
-        await validate_pdf(mock)
-
-        # Verificamos que seek fue llamado con 0.
-        mock.seek.assert_any_call(0)
+        assert await file_mock.read() == content

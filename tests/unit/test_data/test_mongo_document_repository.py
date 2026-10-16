@@ -1,255 +1,115 @@
 """
-test_mongo_document_repository.py
-----------------------------------
-Tests unitarios para MongoDocumentRepository.
+Tests unitarios de MongoDocumentRepository.
 
-Estrategia:
-  - Mockeamos DocumentModel (Beanie) para no necesitar MongoDB real.
-  - Testeamos los 5 métodos: save, get_all, get_by_id, update, delete.
-  - Cada test verifica: resultado correcto, manejo de "no encontrado" y errores.
-
-TDD aplicado: estos tests definen el comportamiento esperado. Si el repositorio
-falla un test, el código del repositorio tiene un bug, no el test.
+Se usa mongomock-motor: una base MongoDB en memoria con la misma API que Motor.
+Así se prueba el comportamiento del repositorio (qué guarda, qué devuelve) y no
+la cadena interna de llamadas a Beanie.
 """
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
+from beanie import init_beanie
+from mongomock_motor import AsyncMongoMockClient
 
-NOW = datetime(2024, 6, 15, tzinfo=timezone.utc)
+from app.business.domain.exceptions import DuplicateDocumentError
+from app.business.entities.document import Document
+from app.data.models.document_model import DocumentModel
+from app.data.repositories.mongo_document_repository import MongoDocumentRepository
 
-
-def make_mock_document(
-    id="64a1b2c3d4e5f6a7b8c9d0e1",
-    name="test.pdf",
-    checksum="abc123",
-    extracted_text="Texto",
-):
-    """Helper: crea una entidad de dominio mockeada."""
-    doc = MagicMock()
-    doc.id = id
-    doc.name = name
-    doc.checksum = checksum
-    doc.extracted_text = extracted_text
-    doc.created_at = NOW
-    doc.updated_at = NOW
-    return doc
+MISSING_ID = "64a1b2c3d4e5f6a7b8c9d0e1"
 
 
-def make_mock_model(entity=None):
-    """Helper: crea un DocumentModel mockeado que retorna entidades."""
-    if entity is None:
-        entity = make_mock_document()
-    model = MagicMock()
-    model.id = MagicMock()
-    model.to_entity = MagicMock(return_value=entity)
-    model.insert = AsyncMock()
-    model.delete = AsyncMock()
-    model.set = AsyncMock()
-    return model
+@pytest.fixture
+async def repo() -> MongoDocumentRepository:
+    database = AsyncMongoMockClient()["repo_tests"]
+    await init_beanie(database=database, document_models=[DocumentModel])
+    return MongoDocumentRepository()
+
+
+def new_document(checksum: str = "c1", filename: str = "a.pdf") -> Document:
+    return Document(filename=filename, checksum=checksum, extracted_text="Texto")
 
 
 class TestSave:
-    """Tests del método save()."""
+    async def test_assigns_an_id_and_keeps_the_data(self, repo):
+        saved = await repo.save(new_document())
 
-    @pytest.mark.asyncio
-    async def test_save_retorna_entidad_con_id_asignado(self):
-        """
-        Dado: una entidad de dominio válida
-        Cuando: llamamos a save()
-        Entonces: retorna la entidad con el id asignado por Mongo
-        """
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
+        assert saved.id is not None
+        assert (saved.filename, saved.checksum, saved.extracted_text) == ("a.pdf", "c1", "Texto")
 
-        entity = make_mock_document(id=None)
-        model = make_mock_model()
+    async def test_same_checksum_twice_raises_duplicate(self, repo):
+        await repo.save(new_document(checksum="igual"))
 
-        with patch("app.data.repositories.mongo_document_repository.DocumentModel") as MockModel:
-            MockModel.from_entity.return_value = model
-
-            repo = MongoDocumentRepository()
-            result = await repo.save(entity)
-
-        model.insert.assert_called_once()
-        assert result is not None
-
-    @pytest.mark.asyncio
-    async def test_save_lanza_error_en_duplicado(self):
-        """
-        Dado: un documento cuyo checksum ya existe en BD
-        Cuando: llamamos a save()
-        Entonces: lanza DuplicateDocumentError (el mismo error que la validación previa),
-                  así el cliente recibe 409 y no un 500
-        """
-        from pymongo.errors import DuplicateKeyError
-        from app.business.domain.exceptions import DuplicateDocumentError
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
-
-        entity = make_mock_document(checksum="checksum_existente")
-        model = make_mock_model()
-        model.insert = AsyncMock(side_effect=DuplicateKeyError("dup key"))
-
-        with patch("app.data.repositories.mongo_document_repository.DocumentModel") as MockModel:
-            MockModel.from_entity.return_value = model
-
-            repo = MongoDocumentRepository()
-            with pytest.raises(DuplicateDocumentError, match="checksum_existente"):
-                await repo.save(entity)
+        with pytest.raises(DuplicateDocumentError, match="igual"):
+            await repo.save(new_document(checksum="igual", filename="otro.pdf"))
 
 
 class TestGetAll:
-    """Tests del método get_all()."""
+    async def test_empty_collection_returns_empty_list(self, repo):
+        assert await repo.get_all() == []
 
-    @pytest.mark.asyncio
-    async def test_get_all_retorna_lista_de_entidades(self):
-        """
-        Dado: 2 documentos en la BD
-        Cuando: llamamos a get_all()
-        Entonces: retorna lista con 2 entidades
-        """
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
+    async def test_paginates_with_skip_and_limit(self, repo):
+        for i in range(3):
+            await repo.save(new_document(checksum=f"c{i}", filename=f"{i}.pdf"))
 
-        entity1 = make_mock_document(id="1", name="a.pdf")
-        entity2 = make_mock_document(id="2", name="b.pdf")
-        model1 = make_mock_model(entity1)
-        model2 = make_mock_model(entity2)
+        page = await repo.get_all(skip=1, limit=1)
 
-        # Construir la cadena de mocks awaitable: find_all().skip().limit().to_list()
-        mock_limit = MagicMock()
-        mock_limit.to_list = AsyncMock(return_value=[model1, model2])
-        
-        mock_skip = MagicMock()
-        mock_skip.limit = MagicMock(return_value=mock_limit)
-        
-        mock_find = MagicMock()
-        mock_find.skip = MagicMock(return_value=mock_skip)
+        assert [d.filename for d in page] == ["1.pdf"]
 
-        with patch("app.data.repositories.mongo_document_repository.DocumentModel") as MockModel:
-            MockModel.find_all.return_value = mock_find
-
-            repo = MongoDocumentRepository()
-            result = await repo.get_all()
-
-        assert len(result) == 2
-
-    @pytest.mark.asyncio
-    async def test_get_all_retorna_lista_vacia_si_no_hay_documentos(self):
-        """
-        Dado: colección vacía
-        Cuando: llamamos a get_all()
-        Entonces: retorna [] (no None, no excepción)
-        """
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
-
-        mock_limit = MagicMock()
-        mock_limit.to_list = AsyncMock(return_value=[])
-        
-        mock_skip = MagicMock()
-        mock_skip.limit = MagicMock(return_value=mock_limit)
-        
-        mock_find = MagicMock()
-        mock_find.skip = MagicMock(return_value=mock_skip)
-
-        with patch("app.data.repositories.mongo_document_repository.DocumentModel") as MockModel:
-            MockModel.find_all.return_value = mock_find
-
-            repo = MongoDocumentRepository()
-            result = await repo.get_all()
-
-        assert result == []
 
 class TestGetById:
-    """Tests del método get_by_id()."""
+    async def test_returns_the_saved_document(self, repo):
+        saved = await repo.save(new_document())
 
-    @pytest.mark.asyncio
-    async def test_get_by_id_retorna_entidad_si_existe(self):
-        """
-        Dado: un documento existente con id conocido
-        Cuando: llamamos a get_by_id() con ese id
-        Entonces: retorna la entidad correcta
-        """
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
+        found = await repo.get_by_id(saved.id)
 
-        entity = make_mock_document(id="64a1b2c3d4e5f6a7b8c9d0e1")
-        model = make_mock_model(entity)
+        assert (found.id, found.checksum) == (saved.id, saved.checksum)
 
-        with patch("app.data.repositories.mongo_document_repository.DocumentModel") as MockModel:
-            MockModel.get = AsyncMock(return_value=model)
+    async def test_missing_id_returns_none(self, repo):
+        assert await repo.get_by_id(MISSING_ID) is None
 
-            repo = MongoDocumentRepository()
-            result = await repo.get_by_id("64a1b2c3d4e5f6a7b8c9d0e1")
+    async def test_malformed_id_returns_none(self, repo):
+        assert await repo.get_by_id("no-es-un-objectid") is None
 
-        assert result is entity
 
-    @pytest.mark.asyncio
-    async def test_get_by_id_retorna_none_si_no_existe(self):
-        """
-        Dado: un id que no existe en BD
-        Cuando: llamamos a get_by_id()
-        Entonces: retorna None (no lanza excepción)
-        """
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
+class TestGetByChecksum:
+    async def test_finds_by_checksum(self, repo):
+        saved = await repo.save(new_document(checksum="buscado"))
 
-        with patch("app.data.repositories.mongo_document_repository.DocumentModel") as MockModel:
-            MockModel.get = AsyncMock(return_value=None)
+        assert (await repo.get_by_checksum("buscado")).id == saved.id
 
-            repo = MongoDocumentRepository()
-            result = await repo.get_by_id("64a1b2c3d4e5f6a7b8c9d0e1")
+    async def test_unknown_checksum_returns_none(self, repo):
+        assert await repo.get_by_checksum("nada") is None
 
-        assert result is None
 
-    @pytest.mark.asyncio
-    async def test_get_by_id_retorna_none_si_id_invalido(self):
-        """
-        Dado: un id con formato inválido (no es ObjectId)
-        Cuando: llamamos a get_by_id()
-        Entonces: retorna None (no lanza excepción)
-        """
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
+class TestUpdate:
+    async def test_renames_and_persists(self, repo):
+        saved = await repo.save(new_document())
 
-        repo = MongoDocumentRepository()
-        result = await repo.get_by_id("id-que-no-es-objectid")
+        updated = await repo.update(saved.id, {"filename": "nuevo.pdf"})
 
-        assert result is None
+        assert updated.filename == "nuevo.pdf"
+        assert (await repo.get_by_id(saved.id)).filename == "nuevo.pdf"
+
+    async def test_ignores_fields_that_are_not_metadata(self, repo):
+        saved = await repo.save(new_document())
+
+        updated = await repo.update(saved.id, {"checksum": "otro", "extracted_text": "otro"})
+
+        assert (updated.checksum, updated.extracted_text) == ("c1", "Texto")
+
+    async def test_missing_id_returns_none(self, repo):
+        assert await repo.update(MISSING_ID, {"filename": "x.pdf"}) is None
 
 
 class TestDelete:
-    """Tests del método delete()."""
+    async def test_deletes_and_returns_true(self, repo):
+        saved = await repo.save(new_document())
 
-    @pytest.mark.asyncio
-    async def test_delete_retorna_true_si_existia(self):
-        """
-        Dado: un documento existente
-        Cuando: llamamos a delete()
-        Entonces: retorna True
-        """
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
+        assert await repo.delete(saved.id) is True
+        assert await repo.get_by_id(saved.id) is None
 
-        model = make_mock_model()
+    async def test_missing_id_returns_false(self, repo):
+        assert await repo.delete(MISSING_ID) is False
 
-        with patch("app.data.repositories.mongo_document_repository.DocumentModel") as MockModel:
-            MockModel.get = AsyncMock(return_value=model)
-
-            repo = MongoDocumentRepository()
-            result = await repo.delete("64a1b2c3d4e5f6a7b8c9d0e1")
-
-        assert result is True
-        model.delete.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_delete_retorna_false_si_no_existia(self):
-        """
-        Dado: un id que no existe
-        Cuando: llamamos a delete()
-        Entonces: retorna False (no lanza excepción)
-        """
-        from app.data.repositories.mongo_document_repository import MongoDocumentRepository
-
-        with patch("app.data.repositories.mongo_document_repository.DocumentModel") as MockModel:
-            MockModel.get = AsyncMock(return_value=None)
-
-            repo = MongoDocumentRepository()
-            result = await repo.delete("64a1b2c3d4e5f6a7b8c9d0e1")
-
-        assert result is False
+    async def test_malformed_id_returns_false(self, repo):
+        assert await repo.delete("no-es-un-objectid") is False
