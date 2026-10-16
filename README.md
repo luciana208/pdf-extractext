@@ -1,320 +1,233 @@
 # 📄 PDF-extractext
 
-> API REST para extracción de texto y gestión de documentos PDF, desarrollada con arquitectura de 3 capas y FastAPI.
+> API REST que recibe archivos PDF, extrae su texto y lo guarda en MongoDB junto con el checksum del archivo, con CRUD completo sobre los documentos.
 
-![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688?style=flat-square&logo=fastapi&logoColor=white)
-![MongoDB](https://img.shields.io/badge/MongoDB-7.0+-47A248?style=flat-square&logo=mongodb&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-compose-2496ED?style=flat-square&logo=docker&logoColor=white)
-![UV](https://img.shields.io/badge/UV-package_manager-DE5FE9?style=flat-square)
-![License](https://img.shields.io/badge/licencia-MIT-blue?style=flat-square)
+![tests](https://github.com/OWNER/REPO/actions/workflows/tests.yml/badge.svg)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-6-47A248?style=flat-square&logo=mongodb&logoColor=white)
+![uv](https://img.shields.io/badge/uv-gestor_de_paquetes-DE5FE9?style=flat-square)
 
----
-
-## 📑 Tabla de Contenidos
-
-- [Descripción](#-descripción)
-- [Características](#-características)
-- [Arquitectura](#-arquitectura)
-- [Tecnologías](#-tecnologías)
-- [Endpoints](#-endpoints-de-la-api)
-- [Instalación](#-instalación-y-ejecución)
-- [Testing](#-testing)
-- [Principios aplicados](#-principios-aplicados)
-- [Equipo](#-equipo)
-- [Licencia](#-licencia)
+Proyecto de la materia **Desarrollo de Software** — UTN Facultad Regional San Rafael, 2026 (Etapa 1).
 
 ---
 
-## 📌 Descripción
+## Contenido
 
-**PDF-extractext** es una API REST que permite subir archivos PDF, extraer su contenido textual de forma automática y almacenarlo de manera persistente. Los documentos quedan disponibles para consultarse, modificarse o eliminarse a través de endpoints estándar.
-
-El proyecto está desarrollado como trabajo práctico universitario, aplicando arquitectura limpia de 3 capas, metodología TDD y los principios de programación vistos en la materia.
-
----
-
-## ✨ Características
-
-- 📤 **Subida y procesamiento de PDFs** con validación de formato y tamaño
-- 🔍 **Extracción automática de texto** del contenido del PDF
-- 🗃️ **Almacenamiento persistente** en MongoDB con metadatos completos
-- 🔁 **API RESTful** con los 5 métodos CRUD sobre documentos
-- 🏗️ **Arquitectura de 3 capas** (Presentación, Negocio, Datos)
-- 🧪 **Desarrollo guiado por tests** (TDD) con cobertura por capa
-- ⚙️ **Gestión de configuración** siguiendo los primeros 6 factores de 12-Factor App
-- 🐳 **Containerizado con Docker** para ejecución y testing reproducibles
+- [Funcionalidades](#funcionalidades)
+- [Arquitectura](#arquitectura)
+- [Configuración](#configuración)
+- [Cómo levantarlo](#cómo-levantarlo)
+- [Endpoints](#endpoints)
+- [Tests](#tests)
+- [Principios aplicados](#principios-aplicados)
+- [Equipo](#equipo)
 
 ---
 
-## 🏛️ Arquitectura
+## Funcionalidades
 
-El proyecto aplica una arquitectura de **3 capas con separación estricta de responsabilidades**. Cada capa solo conoce a la inmediatamente inferior y se comunica a través de interfaces (contratos), lo que garantiza bajo acoplamiento y alta cohesión.
+- **Subir un PDF** (`multipart/form-data`) y extraer solo su texto.
+- **Persistir** el texto en MongoDB con el **checksum SHA-256** del archivo.
+- **CRUD** de los documentos: listar (paginado), consultar, renombrar, borrar y descargar el texto como `.txt`.
+- **Validación** de formato (magic bytes `%PDF` y que el contenido se pueda leer) y de tamaño (`MAX_PDF_SIZE_MB`).
+- **Sin archivos temporales**: el PDF se procesa en memoria, nunca se escribe en disco.
+- **Sin duplicados**: el mismo contenido no se guarda dos veces, aunque llegue en dos requests simultáneas (índice único en `checksum`).
+- **Errores en formato RFC 9457** (Problem Details), con `Content-Type: application/problem+json`.
+
+---
+
+## Arquitectura
+
+Capas con dependencias hacia adentro: el negocio no conoce FastAPI, MongoDB ni pdfplumber, solo interfaces (puertos).
 
 ```
-┌─────────────────────────────────────────────┐
-│           CAPA DE PRESENTACIÓN              │
-│   Routers · Controllers · DTOs · Validators │
-└──────────────────┬──────────────────────────┘
-                   │  interfaces / contratos
-┌──────────────────▼──────────────────────────┐
-│            CAPA DE NEGOCIO                  │
-│  Services · Entities · Domain Logic         │
-└──────────────────┬──────────────────────────┘
-                   │  interfaces / contratos
-┌──────────────────▼──────────────────────────┐
-│             CAPA DE DATOS                   │
-│   Repositories (MongoDB) · Models · DTOs    │
-└─────────────────────────────────────────────┘
+          HTTP
+           │
+┌──────────▼───────────────────────────────────────────────┐
+│ PRESENTACIÓN  routers · controller · DTOs · validador    │
+│               middleware de tamaño · errores → RFC 9457  │
+└──────────┬───────────────────────────────────────────────┘
+           │
+┌──────────▼───────────────────────────────────────────────┐
+│ CASOS DE USO  ProcessPDF · List · Get · Update · Delete  │
+└──────────┬───────────────────────────────────────────────┘
+           │ dependen de
+┌──────────▼───────────────────────────────────────────────┐
+│ NEGOCIO       entidad Document · checksum · reglas       │
+│               excepciones de dominio                     │
+│               puertos: IDocumentRepository, ITextExtractor│
+└──────────▲───────────────────────────────────────────────┘
+           │ implementan
+┌──────────┴───────────────────────────────────────────────┐
+│ DATOS         MongoDocumentRepository (Beanie/MongoDB)   │
+│               PdfplumberTextExtractor                    │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### Estructura de carpetas
+`app/dependencies.py` es la raíz de composición: es el único lugar que elige las implementaciones concretas.
+
+### Estructura
 
 ```
-pdf-extractext/
-├── app/
-│   ├── main.py                    # Entrada de la aplicación FastAPI
-│   ├── config.py                  # Variables de entorno
-│   ├── dependencies.py            # Inyección de dependencias
-│   │
-│   ├── presentation/
-│   │   ├── routers/               # Definición de rutas HTTP
-│   │   ├── controllers/           # Orquestación del flujo
-│   │   ├── dto/                   # Objetos de transferencia de datos
-│   │   └── validators/            # Validación de formato y tamaño
-│   │
-│   ├── business/
-│   │   ├── services/              # Lógica de negocio principal
-│   │   ├── entities/              # Entidades del dominio
-│   │   ├── domain/                # Extracción, checksum, validaciones
-│   │   └── repositories/         # Interfaces de repositorio
-│   │
-│   └── data/
-│       ├── repositories/          # Implementación con MongoDB
-│       ├── models/                # Esquemas de persistencia
-│       ├── database/              # Conexión y configuración MongoDB
-│       └── dto/                   # DTOs internos entre capas
-│
-├── tests/
-│   ├── unit/
-│   │   ├── test_presentation/
-│   │   ├── test_business/
-│   │   └── test_data/
-│   └── integration/
-│
-├── docs/
-├── docker-compose.yml             # Stack de producción/desarrollo
-├── docker-compose.test.yml        # Stack de testing aislado
-├── Dockerfile
-├── Dockerfile.test
-├── pyproject.toml
-└── README.md
+app/
+├── main.py                     # App FastAPI: logging, middleware, errores, router
+├── dependencies.py             # Composición (inyección de dependencias)
+├── config/settings.py          # Configuración desde variables de entorno
+├── presentation/
+│   ├── routers/                # Endpoints HTTP
+│   ├── controllers/            # DTOs ↔ casos de uso
+│   ├── dto/                    # Contratos de entrada y salida
+│   ├── validators/             # Formato y tamaño del PDF
+│   ├── middlewares/            # Límite de tamaño del body (413)
+│   ├── error_handlers.py       # Errores de dominio → RFC 9457
+│   └── downloads.py            # Nombre y header de la descarga .txt
+├── use_cases/                  # Un caso de uso por operación
+├── business/
+│   ├── entities/               # Document
+│   ├── domain/                 # checksum, reglas, excepciones
+│   ├── repositories/interfaces # Puerto IDocumentRepository
+│   └── extractors/interfaces   # Puerto ITextExtractor
+└── data/
+    ├── database/               # Conexión a MongoDB
+    ├── models/                 # DocumentModel (Beanie)
+    ├── repositories/           # MongoDocumentRepository
+    └── extractors/             # PdfplumberTextExtractor
+tests/
+├── unit/                       # Sin servicios externos
+└── integration/                # HTTP → MongoDB real
 ```
 
 ---
 
-## 🛠️ Tecnologías
+## Configuración
 
-| Tecnología | Rol en el proyecto |
-|---|---|
-| **Python 3.12+** | Lenguaje principal |
-| **FastAPI** | Framework web para la API REST |
-| **UV** | Gestor de paquetes y entornos virtuales |
-| **MongoDB** | Base de datos NoSQL para persistencia |
-| **Motor** | Driver asíncrono de MongoDB para Python |
-| **Pydantic** | Validación de datos y DTOs |
-| **PyMuPDF / pdfplumber** | Extracción de texto de archivos PDF |
-| **Docker & Docker Compose** | Containerización y orquestación |
-| **pytest + pytest-asyncio** | Framework de testing |
+Todo se configura con variables de entorno (12-Factor III). Ver `.env.example`.
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `MONGO_URL` | `mongodb://localhost:27017` | URL de MongoDB |
+| `DB_NAME` | `pdf_extraction_db` | Base de datos |
+| `MAX_PDF_SIZE_MB` | `10` | Tamaño máximo del PDF |
+| `DEFAULT_PAGE_SIZE` | `20` | Documentos por página si no se indica `limit` |
+| `MAX_PAGE_SIZE` | `100` | Máximo permitido para `limit` |
+| `LOG_LEVEL` | `INFO` | Nivel de logs (salen por stdout) |
 
 ---
 
-## 🔌 Endpoints de la API
+## Cómo levantarlo
 
-Base URL: `http://localhost:8000/api/v1`
+### Con Docker (recomendado)
 
-| Método | Endpoint | Descripción | Cuerpo (Request) | Respuesta |
-|---|---|---|---|---|
-| `POST` | `/documents` | Sube un PDF y extrae su texto | `multipart/form-data` con el archivo PDF | Documento creado con texto extraído |
-| `GET` | `/documents` | Lista todos los documentos almacenados | — | Array de documentos |
-| `GET` | `/documents/{id}` | Obtiene un documento específico por ID | — | Documento con metadatos y texto |
-| `PUT` | `/documents/{id}` | Actualiza los metadatos de un documento | JSON con campos a modificar | Documento actualizado |
-| `DELETE` | `/documents/{id}` | Elimina un documento del sistema | — | Mensaje de confirmación |
-| `GET` | `/documents/{id}/download` | Descarga el texto extraído como archivo `.txt` usando el nombre original del PDF | — | Archivo `.txt` con el contenido de `extracted_text` |
+```bash
+cp .env.example .env      # opcional: todas las variables tienen valor por defecto
+docker compose up --build
+```
 
-### Ejemplo de respuesta — `POST /documents`
+La API queda en `http://localhost:8000` y la documentación interactiva en `http://localhost:8000/docs`.
+
+> En Linux, si aparece `permission denied ... docker.sock`: `sudo usermod -aG docker $USER` y luego `newgrp docker`.
+
+### Sin Docker
+
+Requiere Python 3.12, [uv](https://docs.astral.sh/uv/) y un MongoDB local.
+
+```bash
+uv sync
+MONGO_URL=mongodb://localhost:27017 uv run fastapi dev app/main.py
+```
+
+---
+
+## Endpoints
+
+Base: `/api/v1/documents`
+
+| Método | Ruta | Descripción | Respuesta OK |
+|---|---|---|---|
+| `POST` | `/` | Sube un PDF (`file`, y `custom_name` opcional) | `201` documento creado |
+| `GET` | `/?skip=0&limit=20` | Lista paginada | `200` lista |
+| `GET` | `/{id}` | Un documento | `200` documento |
+| `PUT` | `/{id}` | Renombra: `{"custom_name": "nuevo.pdf"}` | `200` documento |
+| `DELETE` | `/{id}` | Borra | `200` mensaje |
+| `GET` | `/{id}/download` | Descarga el texto como `.txt` | `200` archivo |
+
+Ejemplo de documento:
 
 ```json
 {
   "id": "664f2a1b3e8c1a2b3c4d5e6f",
   "name": "informe-final.pdf",
-  "checksum": "a3f1d29e...",
-  "extracted_text": "Contenido extraído del documento PDF...",
-  "created_at": "2024-05-23T10:30:00",
-  "updated_at": "2024-05-23T10:30:00"
+  "checksum": "a3f1d29e…",
+  "extracted_text": "Contenido del PDF…",
+  "text_preview": "Contenido del PDF…",
+  "created_at": "2026-05-23T10:30:00+00:00",
+  "updated_at": "2026-05-23T10:30:00+00:00"
 }
 ```
 
-### Descarga del texto extraído — `GET /documents/{id}/download`
+### Errores
 
-Este endpoint permite descargar el texto extraído de un documento como un archivo de texto plano. El archivo descargado conserva el nombre original del PDF, pero con extensión `.txt`.
+| Status | Cuándo |
+|---|---|
+| `400` | No es un PDF (magic bytes) o su contenido no se puede leer |
+| `404` | El documento no existe |
+| `409` | Ya existe un documento con el mismo contenido (checksum) |
+| `413` | El archivo supera `MAX_PDF_SIZE_MB` |
+| `422` | Parámetros inválidos (validación de FastAPI) |
 
-Ejemplo de uso con `curl`:
-
-```bash
-curl -v -o output.txt "http://localhost:8000/api/v1/documents/<DOCUMENT_ID>/download"
-```
-
-Respuesta esperada:
-- Código HTTP: `200 OK` — archivo adjunto con `Content-Disposition: attachment; filename="original_name.txt"`
-- Si el documento no existe: `404 Not Found` con cuerpo en formato ProblemDetail (RFC 9457) incluyendo `type`, `title`, `status`, `detail` e `instance`.
-
-
----
-
-## 🚀 Instalación y Ejecución
-
-### Prerrequisitos
-
-- [Docker](https://docs.docker.com/get-docker/) y [Docker Compose](https://docs.docker.com/compose/) instalados
-
-### ⚠️ Permisos en Linux
-
-En Linux, el daemon de Docker requiere permisos especiales. Si al ejecutar `docker compose` aparece un error como:
-
-```
-permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
-```
-
-La solución es agregar tu usuario al grupo `docker` (solo se hace una vez):
-
-```bash
-sudo usermod -aG docker $USER
-```
-
-Luego aplicá el cambio sin cerrar sesión:
-
-```bash
-newgrp docker
-```
-
-> En **Windows** con Docker Desktop este problema no aplica: el instalador configura los permisos automáticamente.
-
----
-
-### Con Docker (recomendado)
-
-**1. Clonar el repositorio**
-
-```bash
-git clone https://github.com/tu-usuario/pdf-extractext.git
-cd pdf-extractext
-```
-
-**2. Configurar variables de entorno**
-
-Crear un archivo `.env` en la raíz del proyecto:
-
-```env
-MONGODB_URL=mongodb://mongo:27017
-DATABASE_NAME=pdf_extractext
-MAX_PDF_SIZE_MB=10
-```
-
-**3. Levantar los servicios**
-
-```bash
-docker compose up --build
-```
-
-Esto levanta la API y MongoDB juntos. La API queda disponible en `http://localhost:8000`.
-
-**4. Acceder a la documentación interactiva**
-
-Abrí en el navegador: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-> Este proyecto es una API backend pura. No incluye frontend ni páginas estáticas.
-
----
-
-### Sin Docker (alternativa local)
-
-Requiere Python 3.12+, [UV](https://docs.astral.sh/uv/) y MongoDB corriendo localmente.
-
-```bash
-# Instalar dependencias
-uv sync
-
-# Configurar .env con MongoDB local
-echo "MONGODB_URL=mongodb://localhost:27017" > .env
-echo "DATABASE_NAME=pdf_extractext" >> .env
-echo "MAX_PDF_SIZE_MB=10" >> .env
-
-# Ejecutar la aplicación
-uv run fastapi dev app/main.py
+```json
+{
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Document '664f…' not found.",
+  "instance": "http://localhost:8000/api/v1/documents/664f…"
+}
 ```
 
 ---
 
-## 🧪 Testing
+## Tests
 
-El proyecto sigue la metodología **TDD**: los tests se escriben antes que el código de producción.
-Hay tests unitarios por capa y tests de integración para el flujo completo.
-
-### Con Docker (recomendado)
-
-Levanta un entorno aislado con su propia base de datos de test y ejecuta toda la suite:
+Desarrollados con **TDD**: cada cambio arranca con un test que falla (`test(rojo): …`) y sigue con el código que lo hace pasar (`fix/feat(verde): …`).
 
 ```bash
+# Unitarios (no necesitan MongoDB)
+uv run pytest tests/unit
+
+# Integración (necesitan MongoDB en MONGO_URL)
+MONGO_URL=mongodb://localhost:27017 uv run pytest tests/integration
+
+# Todo dentro de Docker, con su propia base
 docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+
+# Cobertura
+uv run pytest --cov
 ```
 
-### Sin Docker
-
-Los **tests unitarios** no dependen de ningún servicio externo y pueden correrse directamente:
-
-```bash
-# Tests unitarios (no requieren MongoDB)
-uv run pytest tests/unit/ -v
-
-# Por capa específica
-uv run pytest tests/unit/test_presentation/
-uv run pytest tests/unit/test_business/
-uv run pytest tests/unit/test_data/
-
-# Con cobertura
-uv run pytest tests/unit/ --cov=app --cov-report=term-missing
-```
-
-> ⚠️ Los **tests de integración** requieren MongoDB corriendo. Si querés ejecutarlos
-> localmente sin Docker, levantá primero una instancia de MongoDB en `localhost:27017`
-> o usá el docker-compose.test.yml que lo hace automáticamente.
-
-> ⚠️ Si al ejecutar `docker compose up` aparece el error `port is already allocated` en el puerto 27017,
-> significa que tenés otro contenedor de MongoDB corriendo. Detenelo primero:
-> ```bash
-> docker rm -f mongo-test
-> ```
-> Luego volvé a ejecutar `docker compose up --build`.
+Los tests de integración usan una base separada (`pdf_test_db`) para no tocar los datos de desarrollo. El workflow `.github/workflows/tests.yml` corre toda la suite en cada push y pull request.
 
 ---
 
-## 📐 Principios aplicados
+## Principios aplicados
 
-- **Arquitectura de 3 capas** con separación estricta de responsabilidades
-- **TDD** (Test-Driven Development): tests primero, código después
-- **12-Factor App** (factores I–VI): codebase, dependencias, configuración, servicios de respaldo, build/run/release, procesos
-- **Principios SOLID** aplicados en el diseño de clases y módulos
-- **Inyección de dependencias** para desacoplar capas e interfaces
-
----
-
-## 👥 Equipo
-
-> Completar con los integrantes del grupo.
+- **Arquitectura limpia / puertos y adaptadores**: el negocio depende de interfaces; las implementaciones se eligen en `dependencies.py`.
+- **SOLID**: un caso de uso por operación (S), nuevos repositorios o extractores sin tocar el negocio (O), implementaciones intercambiables (L), interfaces chicas (I), dependencias invertidas (D).
+- **DRY, KISS, YAGNI**: sin dependencias ni capas que no se usen.
+- **TDD**: historial rojo → verde por cada cambio.
+- **12-Factor**: un repo (I), dependencias declaradas y fijadas con `uv.lock` (II), configuración por entorno (III), MongoDB como servicio externo (IV), build/run separados con Docker (V), procesos sin estado (VI), port binding (VII), logs a stdout (XI).
 
 ---
 
-## 📄 Licencia
+## Equipo
 
-Este proyecto está bajo la licencia MIT. Ver el archivo [LICENSE](LICENSE) para más detalles.
+- Fabio
+- Luciana
+- Celina
+
+---
+
+## Licencia
+
+MIT — ver [LICENSE](LICENSE).

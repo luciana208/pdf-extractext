@@ -1,3 +1,5 @@
+import logging
+import sys
 from contextlib import asynccontextmanager
 
 from beanie import init_beanie
@@ -11,6 +13,14 @@ from app.data.models.document_model import DocumentModel
 from app.presentation.error_handlers import register_error_handlers
 from app.presentation.middlewares.body_size_limit import BodySizeLimitMiddleware
 from app.presentation.routers.document_router import router as document_router
+
+
+# 12-Factor XI: los logs van a stdout; el entorno decide qué hacer con ellos.
+logging.basicConfig(
+    stream=sys.stdout,
+    level=settings.log_level.upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 
 @asynccontextmanager

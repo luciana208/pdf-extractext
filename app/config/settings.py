@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     max_pdf_size_mb: int = Field(10)
     default_page_size: int = Field(20)
     max_page_size: int = Field(100)
+    log_level: str = Field("INFO")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
