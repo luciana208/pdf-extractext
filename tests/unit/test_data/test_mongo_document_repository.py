@@ -113,3 +113,26 @@ class TestDelete:
 
     async def test_malformed_id_returns_false(self, repo):
         assert await repo.delete("no-es-un-objectid") is False
+
+
+class TestDates:
+    """Las fechas salen siempre en UTC con zona horaria, se lean recién guardadas o desde la base."""
+
+    async def test_dates_read_from_the_database_are_timezone_aware(self, repo):
+        saved = await repo.save(new_document())
+
+        found = await repo.get_by_id(saved.id)
+        updated = await repo.update(saved.id, {"filename": "b.pdf"})
+
+        for document in (saved, found, updated):
+            assert document.created_at.utcoffset() is not None
+            assert document.updated_at.utcoffset() is not None
+
+    async def test_update_moves_updated_at_forward(self, repo):
+        saved = await repo.save(new_document())
+
+        updated = await repo.update(saved.id, {"filename": "b.pdf"})
+
+        # MongoDB guarda milisegundos: se compara a esa precisión.
+        saved_ms = saved.updated_at.replace(microsecond=saved.updated_at.microsecond // 1000 * 1000)
+        assert updated.updated_at >= saved_ms
