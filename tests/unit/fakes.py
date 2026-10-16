@@ -1,4 +1,4 @@
-"""Dobles de prueba compartidos por los tests unitarios."""
+"""Dobles de prueba y PDFs de ejemplo compartidos por los tests unitarios."""
 
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -6,6 +6,7 @@ from itertools import count
 
 from app.business.domain.exceptions import DuplicateDocumentError
 from app.business.entities.document import Document
+from app.business.extractors.interfaces.i_text_extractor import ITextExtractor
 from app.business.repositories.interfaces.i_document_repository import IDocumentRepository
 
 # PDF mínimo válido de una página, sin texto.
@@ -22,6 +23,45 @@ MINIMAL_PDF = (
     b"trailer<</Size 4/Root 1 0 R>>\n"
     b"startxref\n147\n%%EOF"
 )
+
+# PDF de una página con el texto "Hola Mundo PDF".
+TEXT_PDF = "\n".join([
+    "%PDF-1.4",
+    "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj",
+    "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj",
+    "3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj",
+    "4 0 obj<</Length 52>>stream",
+    "BT /F1 12 Tf 100 700 Td (Hola Mundo PDF) Tj ET",
+    "endstream endobj",
+    "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj",
+    "xref",
+    "0 6",
+    "0000000000 65535 f",
+    "0000000009 00000 n",
+    "0000000052 00000 n",
+    "0000000101 00000 n",
+    "0000000212 00000 n",
+    "0000000314 00000 n",
+    "trailer<</Size 6/Root 1 0 R>>",
+    "startxref",
+    "380",
+    "%%EOF",
+]).encode("ascii")
+
+
+class FakeTextExtractor(ITextExtractor):
+    """Extractor que devuelve un texto fijo o lanza el error indicado."""
+
+    def __init__(self, text: str = "texto extraído", error: Exception | None = None) -> None:
+        self.text = text
+        self.error = error
+        self.calls: list[bytes] = []
+
+    def extract(self, file_bytes: bytes) -> str:
+        self.calls.append(file_bytes)
+        if self.error:
+            raise self.error
+        return self.text
 
 
 class InMemoryDocumentRepository(IDocumentRepository):

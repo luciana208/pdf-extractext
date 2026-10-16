@@ -8,7 +8,7 @@ from app.use_cases.get_document import GetDocumentUseCase
 from app.use_cases.list_documents import ListDocumentsUseCase
 from app.use_cases.process_pdf import ProcessPDFUseCase
 from app.use_cases.update_document import UpdateDocumentUseCase
-from tests.unit.fakes import MINIMAL_PDF, InMemoryDocumentRepository
+from tests.unit.fakes import MINIMAL_PDF, FakeTextExtractor, InMemoryDocumentRepository
 
 MISSING_ID = "ffffffffffffffffffffffff"
 
@@ -20,7 +20,7 @@ def repo() -> InMemoryDocumentRepository:
 
 @pytest.fixture
 async def saved(repo):
-    return await ProcessPDFUseCase(repo).execute(MINIMAL_PDF, "original.pdf")
+    return await ProcessPDFUseCase(repo, FakeTextExtractor()).execute(MINIMAL_PDF, "original.pdf")
 
 
 class TestGetDocument:
