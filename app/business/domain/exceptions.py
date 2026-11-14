@@ -1,41 +1,25 @@
-"""Errores de negocio de los documentos.
-
-Describen qué regla se violó, no cómo se informa al cliente: no conocen
-HTTP ni FastAPI. La traducción a respuestas HTTP (RFC 9457) vive en
-app/presentation/error_handlers.py.
-"""
+"""errores de negocio, no conocen http ni fastapi"""
 
 
 class DomainError(Exception):
-    """Base de todos los errores de negocio."""
+    """base de todos los errores de negocio"""
 
 
 class DocumentNotFoundError(DomainError):
-    """No existe un documento con el id buscado."""
-
     def __init__(self, document_id: str) -> None:
-        super().__init__(f"Document '{document_id}' not found.")
+        super().__init__(f"no existe el documento '{document_id}'")
         self.document_id = document_id
 
 
 class DuplicateDocumentError(DomainError):
-    """Ya existe un documento con el mismo checksum."""
-
     def __init__(self, checksum: str) -> None:
-        super().__init__(f"A document with checksum '{checksum}' already exists.")
+        super().__init__(f"ya existe un documento con checksum '{checksum}'")
         self.checksum = checksum
 
 
-class InvalidPDFError(DomainError):
-    """El archivo no es un PDF o su contenido no se puede leer."""
+class ReservationNotFoundError(DomainError):
+    """la reserva no existe, vencio o pertenece a otra saga"""
 
-    def __init__(self, detail: str = "El archivo no es un PDF válido.") -> None:
-        super().__init__(detail)
-
-
-class PDFTooLargeError(DomainError):
-    """El archivo supera el tamaño máximo permitido."""
-
-    def __init__(self, max_size_mb: int) -> None:
-        super().__init__(f"El archivo supera el tamaño máximo de {max_size_mb} MB.")
-        self.max_size_mb = max_size_mb
+    def __init__(self, document_id: str) -> None:
+        super().__init__(f"no hay una reserva pendiente '{document_id}' para esta saga")
+        self.document_id = document_id
