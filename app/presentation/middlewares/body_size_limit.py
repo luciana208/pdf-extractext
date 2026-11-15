@@ -1,9 +1,4 @@
-"""Límite de tamaño del body HTTP.
-
-Corta las requests demasiado grandes ANTES de que Starlette parsee el multipart.
-Junto con el umbral de spool configurado en main.py, garantiza que un PDF nunca
-se escriba en un archivo temporal en disco (consigna de la Etapa 1).
-"""
+"""corta las requests demasiado grandes antes de leer el body completo"""
 
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -30,9 +25,7 @@ class BodySizeLimitMiddleware:
         rejected = False
 
         async def limited_receive() -> Message:
-            # Sin Content-Length (chunked) contamos los bytes a medida que llegan.
-            # Al pasar el límite simulamos una desconexión: la app deja de leer
-            # y su respuesta de error se reemplaza por un 413.
+            # sin content-length se cuentan los bytes a medida que llegan
             nonlocal received, too_large
             if too_large:
                 return {"type": "http.disconnect"}
@@ -45,6 +38,7 @@ class BodySizeLimitMiddleware:
             return message
 
         async def guarded_send(message: Message) -> None:
+            # si se paso del limite, la respuesta de la app se reemplaza por un 413
             nonlocal rejected
             if not too_large:
                 await send(message)
@@ -75,7 +69,7 @@ class BodySizeLimitMiddleware:
         response = problem_detail_response(
             413,
             "Payload Too Large",
-            f"La request supera el tamaño máximo permitido (~{max_mb} MB).",
+            f"la request supera el tamaño maximo permitido (~{max_mb} MB)",
             str(Request(scope).url),
         )
         await response(scope, receive, send)
