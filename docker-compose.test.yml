@@ -1,14 +1,21 @@
+# corre los tests con su propio mongo:
+# docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
 services:
   tests:
     build:
       context: .
       dockerfile: Dockerfile.test
     environment:
-      - MONGO_URL=mongodb://mongo:27017
-      - DB_NAME=pdf_test_db
-      - MAX_PDF_SIZE_MB=10
+      MONGO_URL: mongodb://mongo:27017
+      DB_NAME: pdf_test_db
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
 
   mongo:
-    image: mongo:6
+    image: mongo:7-jammy
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

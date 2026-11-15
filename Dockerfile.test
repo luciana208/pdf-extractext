@@ -1,13 +1,16 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# imagen para correr toda la suite (unitarios + integracion) contra el mongo de docker-compose.test.yml
+FROM python:3.14-slim
+
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /bin/uv
+
+ENV UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    TZ=America/Argentina/Buenos_Aires
 
 WORKDIR /app
-
-# Dependencias (incluye el grupo dev: pytest, httpx, etc.) fijadas por uv.lock.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --group dev
+RUN uv sync --frozen --no-install-project
+COPY app ./app
+COPY tests ./tests
 
-# Código y tests
-COPY app/ ./app/
-COPY tests/ ./tests/
-
-CMD ["uv", "run", "pytest", "-v"]
+CMD ["uv", "run", "--frozen", "pytest", "-q"]
