@@ -1,9 +1,4 @@
-"""Modelo de persistencia de un documento en MongoDB (Beanie).
-
-Vive solo en la capa de datos: el resto de la aplicación trabaja con la
-entidad de dominio `Document`. La conversión entre ambos está acá, en un
-único lugar (to_entity / from_entity).
-"""
+"""modelo de persistencia en mongodb (beanie), solo vive en la capa de datos"""
 
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -16,32 +11,44 @@ if TYPE_CHECKING:
     from app.business.entities.document import Document as DocumentEntity
 
 
-class DocumentModel(Document):
-    """Documento guardado en la colección `documents`.
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
-    `name` es el nombre visible del archivo; en el dominio se llama `filename`.
-    El índice único sobre `checksum` impide duplicados aun con uploads simultáneos.
+
+class DocumentModel(Document):
+    """
+    coleccion documents. el indice unico de checksum frena duplicados aun con uploads simultaneos;
+    el indice ttl sobre expires_at borra solo las reservas vencidas (los completados lo tienen en null).
     """
 
     name: str
     checksum: str
     extracted_text: str = ""
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    status: str = "completed"
+    saga_id: str | None = None
+    expires_at: datetime | None = None
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
 
     class Settings:
         name = "documents"
-        is_root = True
-        indexes = [IndexModel([("checksum", 1)], unique=True)]
+        indexes = [
+            IndexModel([("checksum", 1)], unique=True, name="checksum_unique"),
+            IndexModel([("expires_at", 1)], expireAfterSeconds=0, name="reservation_ttl"),
+            IndexModel([("status", 1), ("created_at", 1)], name="status_created_at"),
+        ]
 
     def to_entity(self) -> "DocumentEntity":
-        from app.business.entities.document import Document as DocumentEntity
+        from app.business.entities.document import Document as DocumentEntity, DocumentStatus
 
         return DocumentEntity(
             id=str(self.id) if self.id else None,
             filename=self.name,
             checksum=self.checksum,
             extracted_text=self.extracted_text,
+            status=DocumentStatus(self.status),
+            saga_id=self.saga_id,
+            expires_at=_as_utc(self.expires_at),
             created_at=_as_utc(self.created_at),
             updated_at=_as_utc(self.updated_at),
         )
@@ -52,11 +59,16 @@ class DocumentModel(Document):
             name=entity.filename,
             checksum=entity.checksum,
             extracted_text=entity.extracted_text,
+            status=entity.status.value,
+            saga_id=entity.saga_id,
+            expires_at=entity.expires_at,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
         )
 
 
-def _as_utc(moment: datetime) -> datetime:
-    """MongoDB guarda las fechas en UTC pero las devuelve sin zona horaria."""
+def _as_utc(moment: datetime | None) -> datetime | None:
+    # mongo guarda en utc pero puede devolver fechas sin zona horaria
+    if moment is None:
+        return None
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
