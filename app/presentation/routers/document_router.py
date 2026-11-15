@@ -1,100 +1,91 @@
-"""Endpoints HTTP de documentos (/api/v1/documents).
+"""endpoints internos de documentos (/api/v1/documents), solo los llama el orquestador"""
 
-Cada endpoint solo extrae los parámetros de la request y delega en el controller.
-"""
-
-from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.config.settings import settings
 from app.dependencies import get_document_controller
 from app.presentation.controllers.document_controller import DocumentController
+from app.presentation.dto.request.confirm_request import ConfirmRequestDTO
+from app.presentation.dto.request.reservation_request import ReservationRequestDTO
 from app.presentation.dto.request.update_request import UpdateRequestDTO
-from app.presentation.dto.request.upload_request import UploadRequestDTO
 from app.presentation.dto.response.document_response import DocumentResponseDTO
+from app.presentation.dto.response.reservation_response import ReservationResponseDTO
 
-router = APIRouter(
-    prefix="/api/v1/documents",
-    tags=["documents"],  # Agrupa los endpoints en la documentación Swagger.
-)
+router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
+
+# pasos de la saga
 
 @router.post(
-    "/",
-    response_model=DocumentResponseDTO,
+    "/reservations",
+    response_model=ReservationResponseDTO,
     status_code=status.HTTP_201_CREATED,
-    summary="Subir un documento PDF",
+    summary="Reservar un checksum (paso de la saga)",
 )
-async def upload_document(
-    file: UploadFile = File(..., description="Archivo PDF a subir."),
-    custom_name: str | None = Form(default=None, description="Nombre opcional."),
+async def reserve(
+    dto: ReservationRequestDTO,
+    controller: DocumentController = Depends(get_document_controller),
+) -> ReservationResponseDTO:
+    """crea un documento pendiente; 409 si el checksum ya existe"""
+    return await controller.reserve(dto)
+
+
+@router.put(
+    "/{document_id}/content",
+    response_model=DocumentResponseDTO,
+    status_code=status.HTTP_200_OK,
+    summary="Confirmar una reserva con el texto (paso de la saga)",
+)
+async def confirm(
+    document_id: str,
+    dto: ConfirmRequestDTO,
     controller: DocumentController = Depends(get_document_controller),
 ) -> DocumentResponseDTO:
-    """
-    Sube un PDF al sistema.
+    """guarda el texto y completa el documento; 404 si la reserva no existe o vencio"""
+    return await controller.confirm(document_id, dto)
 
-    - Valida que sea un PDF real (magic bytes) y que no supere el tamaño máximo.
-    - Extrae el texto del PDF y calcula su checksum SHA-256.
-    - Detecta duplicados (mismo contenido = mismo checksum).
-    - Persiste el documento y devuelve sus datos.
-    """
-    # En multipart/form-data los campos llegan sueltos; se agrupan en el DTO.
-    dto = UploadRequestDTO(custom_name=custom_name)
-    return await controller.upload_document(file, dto)
 
+@router.delete(
+    "/reservations/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Liberar una reserva (compensacion de la saga)",
+)
+async def release(
+    document_id: str,
+    saga_id: str = Query(..., min_length=1, max_length=64),
+    controller: DocumentController = Depends(get_document_controller),
+) -> Response:
+    """idempotente: siempre 204, exista o no la reserva"""
+    await controller.release(document_id, saga_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# crud de documentos completados
 
 @router.get(
-    "/",
+    "",
     response_model=list[DocumentResponseDTO],
     status_code=status.HTTP_200_OK,
     summary="Listar documentos (paginado)",
 )
 async def get_all_documents(
-    skip: int = Query(0, ge=0, description="Documentos a saltar para paginación."),
-    limit: int = Query(
-        settings.default_page_size,
-        ge=1,
-        le=settings.max_page_size,
-        description="Cantidad máxima de documentos por página.",
-    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(settings.default_page_size, ge=1, le=settings.max_page_size),
     controller: DocumentController = Depends(get_document_controller),
 ) -> list[DocumentResponseDTO]:
-    """
-    Devuelve la lista paginada de documentos almacenados.
-    
-    - skip: cuántos documentos saltar (para navegar páginas).
-    - limit: cuántos documentos traer por página (máx. MAX_PAGE_SIZE).
-    - Retorna una lista vacía si no hay documentos.
-    """
     return await controller.get_all_documents(skip=skip, limit=limit)
-
-
-@router.get(
-    "/{document_id}/download",
-    status_code=status.HTTP_200_OK,
-    summary="Descargar el texto extraído como .txt",
-)
-async def download_document_text(
-    document_id: str,
-    controller: DocumentController = Depends(get_document_controller),
-) -> Response:
-    """Devuelve el texto extraído de un documento como archivo .txt."""
-    return await controller.download_document_text(document_id)
 
 
 @router.get(
     "/{document_id}",
     response_model=DocumentResponseDTO,
     status_code=status.HTTP_200_OK,
-    summary="Obtener un documento por ID",
+    summary="Obtener un documento",
 )
 async def get_document_by_id(
     document_id: str,
     controller: DocumentController = Depends(get_document_controller),
 ) -> DocumentResponseDTO:
-    """
-    Busca y devuelve un documento por su ID único.
-    Retorna 404 si el documento no existe.
-    """
     return await controller.get_document_by_id(document_id)
 
 
@@ -102,18 +93,13 @@ async def get_document_by_id(
     "/{document_id}",
     response_model=DocumentResponseDTO,
     status_code=status.HTTP_200_OK,
-    summary="Actualizar metadatos de un documento",
+    summary="Renombrar un documento",
 )
 async def update_document(
     document_id: str,
     dto: UpdateRequestDTO,
     controller: DocumentController = Depends(get_document_controller),
 ) -> DocumentResponseDTO:
-    """
-    Actualiza los metadatos de un documento existente (ej: custom_name).
-    No permite modificar el contenido del PDF ni el checksum.
-    Retorna 404 si el documento no existe.
-    """
     return await controller.update_document(document_id, dto)
 
 
@@ -126,8 +112,4 @@ async def delete_document(
     document_id: str,
     controller: DocumentController = Depends(get_document_controller),
 ) -> dict[str, str]:
-    """
-    Elimina un documento por su ID.
-    Retorna 404 si el documento no existe.
-    """
     return await controller.delete_document(document_id)

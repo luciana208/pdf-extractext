@@ -1,24 +1,19 @@
-"""Contrato de salida de un documento: lo que recibe el cliente.
-
-Desacopla la respuesta HTTP de la entidad y del modelo de MongoDB.
-"""
+"""contrato de salida de un documento, igual al de la etapa 1"""
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, computed_field, field_serializer
 
-if TYPE_CHECKING:
-    from app.business.entities.document import Document
+from app.business.entities.document import Document
 
 
 class DocumentResponseDTO(BaseModel):
-    id: str = Field(description="Identificador único del documento.")
+    id: str = Field(description="Identificador unico del documento.")
     name: str = Field(description="Nombre del documento.")
     checksum: str = Field(description="Hash SHA-256 del archivo PDF.")
-    extracted_text: str = Field(description="Texto extraído del PDF. Vacío si el PDF es escaneado.")
-    created_at: datetime = Field(description="Fecha y hora de creación.")
-    updated_at: datetime = Field(description="Fecha y hora de última modificación.")
+    extracted_text: str = Field(description="Texto extraido. Vacio si el PDF es escaneado.")
+    created_at: datetime = Field(description="Fecha y hora de creacion.")
+    updated_at: datetime = Field(description="Fecha y hora de ultima modificacion.")
 
     model_config = {"frozen": True}
 
@@ -32,10 +27,10 @@ class DocumentResponseDTO(BaseModel):
         return self.extracted_text[:500]
 
     @classmethod
-    def from_entity(cls, document: "Document") -> "DocumentResponseDTO":
+    def from_entity(cls, document: Document) -> "DocumentResponseDTO":
         return cls(
             id=document.id,
-            name=document.filename,  # en el dominio se llama filename
+            name=document.filename,
             checksum=document.checksum,
             extracted_text=document.extracted_text,
             created_at=document.created_at,

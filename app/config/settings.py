@@ -1,27 +1,51 @@
-"""Configuración de la aplicación (12-Factor III: config en el entorno).
+"""configuracion del servicio leida de variables de entorno (12-factor iii)"""
 
-Cada campo se lee de una variable de entorno con el mismo nombre en mayúsculas
-(MONGO_URL, DB_NAME, MAX_PDF_SIZE_MB, ...). Ver .env.example.
-"""
-
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "PDF Extractext"
+    # identidad del servicio
+    service_name: str = Field("pdf-extractext")
+    service_version: str = Field("1.0.0")
+    log_level: str = Field("INFO")
+
+    # el puerto es el mismo que usa granian, asi hay una sola variable
+    port: int = Field(8000, validation_alias=AliasChoices("GRANIAN_PORT", "PORT"))
+
+    # mongodb (base propia de este servicio)
     mongo_url: str = Field("mongodb://localhost:27017")
     db_name: str = Field("pdf_extraction_db")
-    max_pdf_size_mb: int = Field(10)
+    mongo_connect_retries: int = Field(10)
+
+    # reservas de la saga y paginacion
+    reservation_ttl_seconds: int = Field(300)
     default_page_size: int = Field(20)
     max_page_size: int = Field(100)
+    max_body_size_mb: int = Field(30)
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # registro en consul
+    consul_enabled: bool = Field(False)
+    consul_url: str = Field("http://consul:8500")
+    consul_token: str = Field("")
+    service_address: str = Field("")
+    health_check_interval: str = Field("10s")
+
+    # ruteo en traefik (los tags viajan en el registro de consul)
+    router_name: str = Field("documents")
+    public_host: str = Field("")
+    internal_host: str = Field("documents.internal")
+    circuit_breaker_expression: str = Field(
+        "NetworkErrorRatio() > 0.5 || ResponseCodeRatio(500, 600, 0, 600) > 0.25"
+    )
+    retry_attempts: int = Field(3)
+    retry_initial_interval: str = Field("100ms")
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     @property
-    def max_pdf_size_bytes(self) -> int:
-        return self.max_pdf_size_mb * 1024 * 1024
+    def max_body_size_bytes(self) -> int:
+        return self.max_body_size_mb * 1024 * 1024
 
 
 settings = Settings()
-

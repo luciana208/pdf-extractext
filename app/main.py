@@ -4,18 +4,21 @@ from contextlib import asynccontextmanager
 
 from beanie import init_beanie
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.formparsers import MultiPartParser
 
 from app.config.settings import settings
-from app.data.database.mongo_connection import connect, disconnect, get_database
+from app.data.database.mongo_connection import connect, disconnect, get_database, ping
 from app.data.models.document_model import DocumentModel
+from app.infrastructure.consul_registry import ConsulRegistry, build_consul_client
+from app.infrastructure.health import HealthReporter
+from app.infrastructure.in_flight import in_flight
+from app.infrastructure.instance import INSTANCE_ID
 from app.presentation.error_handlers import register_error_handlers
 from app.presentation.middlewares.body_size_limit import BodySizeLimitMiddleware
+from app.presentation.middlewares.in_flight import InFlightMiddleware
 from app.presentation.routers.document_router import router as document_router
+from app.presentation.routers.health_router import router as health_router
 
-
-# 12-Factor XI: los logs van a stdout; el entorno decide qué hacer con ellos.
+# logs a stdout (12-factor xi)
 logging.basicConfig(
     stream=sys.stdout,
     level=settings.log_level.upper(),
@@ -27,28 +30,30 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     await connect()
     await init_beanie(database=get_database(), document_models=[DocumentModel])
+    app.state.health = HealthReporter(in_flight, {"mongodb": ping})
+    registry = None
+    consul_client = None
+    if settings.consul_enabled:
+        consul_client = build_consul_client(settings)
+        registry = ConsulRegistry(settings, consul_client, INSTANCE_ID)
+        registry.start()
     yield
+    # cierre ordenado: primero salir de consul, despues cerrar mongo
+    if registry:
+        await registry.stop()
+    if consul_client:
+        await consul_client.aclose()
     await disconnect()
 
 
-# Margen para los bytes del multipart que no son el PDF (boundaries, headers, custom_name).
-MULTIPART_OVERHEAD_BYTES = 64 * 1024
-MAX_REQUEST_BYTES = settings.max_pdf_size_bytes + MULTIPART_OVERHEAD_BYTES
+def create_app() -> FastAPI:
+    app = FastAPI(title=settings.service_name, version=settings.service_version, lifespan=lifespan)
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_body_size_bytes)
+    app.add_middleware(InFlightMiddleware, counter=in_flight)
+    register_error_handlers(app)
+    app.include_router(health_router)
+    app.include_router(document_router)
+    return app
 
-# Consigna Etapa 1: el PDF no se persiste temporalmente. Starlette pasa los uploads a
-# disco cuando superan spool_max_size (1 MB por defecto); lo subimos al tamaño máximo
-# de request, y BodySizeLimitMiddleware rechaza todo lo que lo supere.
-MultiPartParser.spool_max_size = MAX_REQUEST_BYTES
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
-app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-register_error_handlers(app)
-app.include_router(document_router)
+app = create_app()

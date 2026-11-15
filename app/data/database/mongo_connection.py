@@ -1,60 +1,64 @@
-"""Conexión a MongoDB (Motor, driver async).
+"""conexion a mongodb con el driver async de pymongo, un cliente por proceso"""
 
-Un único cliente por proceso. main.py llama a connect() al arrancar y a
-disconnect() al apagar; los repositorios obtienen la base con get_database().
-La URL y el nombre de la base vienen de la configuración (variables de entorno).
-"""
-
+import asyncio
 import logging
 
-import motor.motor_asyncio
-from pymongo.errors import ConfigurationError, ConnectionFailure
+from pymongo import AsyncMongoClient
+from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import PyMongoError
 
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-_client: motor.motor_asyncio.AsyncIOMotorClient | None = None
-_database: motor.motor_asyncio.AsyncIOMotorDatabase | None = None
+_client: AsyncMongoClient | None = None
+_database: AsyncDatabase | None = None
 
 
 async def connect() -> None:
-    """Abre la conexión y verifica que el servidor responda.
-
-    Motor conecta en forma perezosa; server_info() fuerza el handshake para
-    que la app no arranque con una URL inválida.
-    """
+    """abre la conexion y reintenta con espera creciente si mongo todavia no arranco"""
     global _client, _database
-
-    try:
-        _client = motor.motor_asyncio.AsyncIOMotorClient(
-            settings.mongo_url,
-            serverSelectionTimeoutMS=5000,
-        )
-        await _client.server_info()
-        _database = _client[settings.db_name]
-        logger.info("Conexión a MongoDB establecida: %s / %s", settings.mongo_url, settings.db_name)
-    except (ConnectionFailure, ConfigurationError) as exc:
-        logger.error("No se pudo conectar a MongoDB: %s", exc)
-        raise
+    _client = AsyncMongoClient(
+        settings.mongo_url,
+        serverSelectionTimeoutMS=5000,
+        retryWrites=True,
+        retryReads=True,
+        tz_aware=True,
+    )
+    delay = 1
+    for attempt in range(1, settings.mongo_connect_retries + 1):
+        try:
+            await _client.admin.command("ping")
+            break
+        except PyMongoError as exc:
+            if attempt == settings.mongo_connect_retries:
+                logger.error("no se pudo conectar a mongodb: %s", exc)
+                raise
+            logger.warning("mongodb no responde (intento %s), reintento en %ss", attempt, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 10)
+    _database = _client[settings.db_name]
+    logger.info("conexion a mongodb establecida (%s)", settings.db_name)
 
 
 async def disconnect() -> None:
-    """Cierra la conexión. Después, get_database() vuelve a fallar hasta un nuevo connect()."""
     global _client, _database
     if _client:
-        _client.close()
-        logger.info("Conexión a MongoDB cerrada.")
+        await _client.close()
+        logger.info("conexion a mongodb cerrada")
     _client = None
     _database = None
 
 
-def get_database() -> motor.motor_asyncio.AsyncIOMotorDatabase:
-    """Base de datos activa.
-
-    Raises:
-        RuntimeError: si se llama antes de connect().
-    """
+def get_database() -> AsyncDatabase:
     if _database is None:
-        raise RuntimeError("La base de datos no está inicializada. ¿Llamaste a connect()?")
+        raise RuntimeError("la base de datos no esta inicializada, falta connect()")
     return _database
+
+
+async def ping() -> bool:
+    # chequeo para el health
+    if _client is None:
+        return False
+    await _client.admin.command("ping")
+    return True
